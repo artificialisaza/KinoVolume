@@ -18,6 +18,14 @@ It is designed for media researchers, artists, designers, and students who want 
 <!-- Suggested hero asset path: docs/images/interface/hero.gif -->
 <!-- Suggested main interface screenshot path: docs/images/interface/main-window.png -->
 
+## Download
+
+**[⬇ Download the latest macOS release (v0.12)](https://github.com/artificialisaza/KinoVolume/releases/latest)**
+
+| Platform | Link |
+|---|---|
+| macOS (DMG) | [KinoVolume v0.12 →](https://github.com/artificialisaza/KinoVolume/releases/latest) |
+
 ## What it does
 
 KinoVolume treats a video as a block of pixels in space and time:
@@ -567,7 +575,7 @@ If you use this software in a research project, publication, artwork, or teachin
 Suggested software citation:
 
 ```text
-Isaza-Giraldo, A. (2026). KinoVolume (Version 0.1.0) [Computer software]. i2ADS. https://isaza.xyz
+Isaza-Giraldo, A. (2026). KinoVolume (Version 0.12) [Computer software]. i2ADS. https://isaza.xyz
 ```
 
 ## License
