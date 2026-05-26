@@ -1,0 +1,36 @@
+cff-version: 1.2.0
+message: "If you use KinoVolume in research, teaching, or artistic work, please cite it using the metadata in this file."
+title: "KinoVolume"
+type: software
+version: "0.1.0"
+abstract: >-
+  KinoVolume is a desktop research software environment for
+  transforming video into spatial-temporal images, 3D forms, and printable
+  artifacts through slit-scan, orthogonal slice, cuboid, cylinder, rings,
+  and slit-tear workflows.
+authors:
+  - family-names: "Isaza-Giraldo"
+    given-names: "Andrés"
+    affiliation: "i2ADS, Porto"
+    website: "https://isaza.xyz"
+url: "https://isaza.xyz"
+keywords:
+  - video analysis
+  - slit-scan
+  - media research
+  - digital art
+  - creative coding
+license: "GPL-3.0-only"
+preferred-citation:
+  type: software
+  authors:
+    - family-names: "Isaza-Giraldo"
+      given-names: "Andrés"
+      affiliation: "i2ADS, Porto"
+      website: "https://isaza.xyz"
+  title: "KinoVolume"
+  version: "0.1.0"
+  year: 2026
+  publisher: "i2ADS"
+  url: "https://isaza.xyz"
+

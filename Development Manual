@@ -1,0 +1,904 @@
+# Deep-Vid Visualizer — Development Manual
+
+> **Version**: 2.1 — April 17, 2026
+> **Status**: Phase 1 complete, Phase 2 complete, Phase 3 in progress (Steps 3.2, 3.3 done).
+> **Purpose**: Implementation reference for coding agents. Describes the codebase AS BUILT, plus specs for remaining work.
+> **How to use**: §1–4 describe the working app. §5 has remaining Phase 3 + 4 tasks. §6 has the error catalog.
+
+### Agent Protocols
+
+1. **Error documentation**: Before marking a step DONE, document every possible runtime error (message, trigger, severity, fix) in the step's table AND in §6.
+2. **Tooltips**: Every non-obvious UI control needs `setToolTip(...)`. Short (1–3 lines). Numeric controls should explain min/max effects.
+3. **No blocking UI thread**: All video processing runs in `QThread` subclasses. UI thread never blocks.
+4. **Image saving**: Use `Pillow` directly — no separate image_exporter module. RGB → PNG, RGBA → PNG (for chroma). TIFF with `compression="tiff_lzw"`.
+
+---
+
+## TABLE OF CONTENTS
+
+1. [Project Overview](#1-project-overview)
+2. [Architecture & Codebase Reference](#2-architecture--codebase-reference)
+3. [UI Structure](#3-ui-structure)
+4. [Completed Work Summary](#4-completed-work-summary)
+5. [Remaining Work — Phase 3 & 4](#5-remaining-work--phase-3--4)
+6. [Known Errors & Troubleshooting](#6-known-errors--troubleshooting)
+7. [Glossary](#7-glossary)
+
+---
+
+## 1. PROJECT OVERVIEW
+
+A cross-platform desktop app (macOS + Windows) that generates **3D and 2D visualizations from video** using slit-scan, volumetric extraction, and temporal sampling. Based on research by Fels et al. and Tang et al.
+
+**Input**: A video file. **Output**:
+- **3D meshes** (OBJ, glTF/GLB) — textured cuboids and cylinders, importable into Blender
+- **2D images** (PNG/TIFF) — slit-scan strips and dendrochronology ring images
+- **Printable PDFs** — cut-and-fold paper models
+- **In-app preview** — interactive 3D viewer (PyVista) and zoomable 2D viewer
+
+**Visualization modes** (working): Slice, Cuboid (Void/Fill), Cylinder, Rings, Orthogonal (Slice sub-mode).
+**Not yet implemented**: Shot Detection.
+
+Legacy prototypes in `legacy/` informed the design but should NOT be referenced for implementation — the current Python code supersedes them entirely.
+
+---
+
+## 2. ARCHITECTURE & CODEBASE REFERENCE
+
+### 2.1 Technology Stack
+
+| Component | Technology | Notes |
+|-----------|-----------|-------|
+| Language | Python 3.12 (requires ≥3.11) | Virtual env at `.venv/` |
+| UI | PySide6 (Qt6) | LGPL licensed |
+| Video | OpenCV (cv2) | All major codecs via FFmpeg backend |
+| Arrays | NumPy | Image data as `(H, W, 3)` uint8 |
+| Image I/O | Pillow (PIL) | PNG/TIFF read/write |
+| 3D Preview | PyVistaQt + VTK | Qt-embedded 3D viewer |
+| 3D Export | trimesh + pygltflib | OBJ (manual), glTF/GLB (trimesh) |
+| PDF | ReportLab | Printable unfold PDFs |
+| Packaging | PyInstaller | Not yet configured |
+
+### 2.2 Design Patterns
+
+- **MVC**: Models (`models/`), Views (`ui/`), Controllers (`processing/`)
+- **QThread Workers**: All processors extend `BaseProcessor(QThread)`. UI thread never blocks.
+- **Signal-Slot**: Qt signals for progress, completion, errors between threads and UI
+- **Strategy Pattern**: Each mode has its own processor class with a common `BaseProcessor` interface
+- **Central State**: `ProjectState(QObject)` holds all settings; UI panels read/write it directly
+
+### 2.3 Memory & Performance
+
+| Strategy | Implementation |
+|----------|---------------|
+| Streaming | `VideoSource.get_frame_range()` reads sequentially via `cap.read()` loop — never loads full video |
+| Edge-only (void) | ~18KB/frame vs ~6MB. Only edge pixels stored for cuboid/cylinder void |
+| Sampling rate | User-configurable Nth frame skip. Reduces processing proportionally |
+| Preview after export | 3D preview builds ONLY after files are written to disk |
+| Texture cap | Preview textures capped at 2048×2048 (`PREVIEW_TEXTURE_MAX`) |
+| Disk-based fill | Cuboid Fill writes each frame to disk as PNG (not RAM) |
+| Memory warning | Warns user if estimated usage > 1GB (`MEMORY_WARN_THRESHOLD_MB`) |
+
+### 2.4 Actual File Structure
+
+This is the **real** directory tree as built. Files marked with `(Phase 3)` do not exist yet.
+
+```
+deep_vid_visualizer/
+├── main.py                          # Entry point: QApplication + MainWindow
+├── config.py                        # Constants (see below)
+├── pyproject.toml                   # Dependencies
+├── models/
+│   ├── project_state.py             # Central state: all settings, Qt signals
+│   └── video_source.py              # OpenCV wrapper: metadata + frame access
+├── processing/
+│   ├── base_processor.py            # Abstract QThread: progress/finished/error/cancelled signals
+│   ├── slice_processor.py           # Slit-scan: extracts pixel strips → 2D image
+│   ├── cuboid_void_processor.py     # Edge extraction → 6 face textures
+│   ├── cuboid_fill_processor.py     # Full frames to disk + edge textures + chroma
+│   ├── cylinder_processor.py        # Circle perimeter → surface texture + caps
+│   ├── rings_processor.py           # Concentric rings → 2D dendro image
+│   ├── chroma_processor.py          # apply_chroma_key() — color → transparent
+│   ├── scene_detector.py            # (Phase 3) PySceneDetect wrapper
+│   ├── slittear_processor.py        # (Phase 3) Freeform line sampling
+│   └── object_detector.py           # Edge detection + U²-Net AI segmentation (ONNX)
+├── export/
+│   ├── mesh_exporter.py             # MeshExporter class: OBJ/glTF for cuboid, cylinder, orthogonal
+│   └── unfold_exporter.py           # export_cuboid_pdf(), export_cylinder_pdf()
+├── ui/
+│   ├── main_window.py               # MainWindow: layout, signal wiring, generate pipeline
+│   ├── sidebar/
+│   │   ├── video_panel.py           # File loader + metadata labels
+│   │   ├── mode_selector.py         # Mode dropdown (Slice/Cuboid/Cylinder/Rings)
+│   │   ├── slice_controls.py        # Slit position, width, orientation, orthogonal
+│   │   ├── cuboid_controls.py       # Border spinboxes, fill/void, chroma controls
+│   │   ├── cylinder_controls.py     # Center, radius, fill/void, preview toggle
+│   │   ├── rings_controls.py        # Center, sampling mode, max output
+│   │   ├── export_controls.py       # Image/mesh format, output dir, PDF button
+│   │   └── generate_panel.py        # Generate/Cancel buttons, progress bar
+│   ├── preview/
+│   │   ├── frame_viewer.py          # Frame display + mask overlays + drag interactions
+│   │   ├── frame_scrubber.py        # Frame slider, range spinboxes, sampling rate
+│   │   ├── preview_3d.py            # PyVistaQt viewer: cuboid, cylinder, orthogonal
+│   │   └── slice_preview.py         # 2D viewer: zoom/pan for slice, rings, unfolded faces
+│   └── widgets/
+│       └── color_picker.py          # ChromaColorPicker: eyedropper + tolerance/fade
+├── resources/
+│   ├── icons/                       # hamburger.png, arrow-up/down.png, zoom icons
+│   ├── styles/theme.qss             # Dark theme (bg #1e1e1e, accent #703030)
+│   └── fonts/
+├── tests/
+│   ├── test_video_source.py         # VideoSource unit tests (10 tests)
+│   └── test_processors.py           # Processor integration tests
+└── packaging/
+    ├── macos/
+    └── windows/
+```
+
+**Files that do NOT exist** (listed in v1 manual but never needed):
+`mask_geometry.py`, `export_settings.py`, `frame_extractor.py`, `image_exporter.py`,
+`preview_2d.py` (→ is `slice_preview.py`), `draggable_mask.py` (→ drag is in `frame_viewer.py`),
+`drawing_canvas.py`, `geometry.py`, `image_utils.py`, `unfold_math.py`.
+
+### 2.5 config.py — Current Values
+
+```python
+APP_NAME = "Deep-Vid Visualizer"
+APP_VERSION = "0.1.0"
+SIDEBAR_WIDTH = 350              # Fixed sidebar width in px
+MIN_WINDOW_WIDTH = 1100
+MIN_WINDOW_HEIGHT = 750
+PREVIEW_TEXTURE_MAX = 2048       # Max dimension for 3D preview textures
+DEFAULT_IMAGE_FORMAT = "png"
+SUPPORTED_VIDEO_FORMATS = [".mp4", ".avi", ".mov", ".mkv", ".webm"]
+MEMORY_WARN_THRESHOLD_MB = 1024  # Warn if estimated usage exceeds this
+RINGS_MAX_OUTPUT_DIAMETER = 8192 # Cap rings output image resolution
+```
+
+### 2.6 Key Classes — Quick Reference
+
+#### `ProjectState` (`models/project_state.py`)
+
+Central state object. All UI panels read/write attributes directly.
+
+**Signals**: `video_changed()`, `mode_changed(str)`, `frame_changed(int)`, `settings_changed()`
+
+**Key attributes**:
+- `video_source: VideoSource | None`
+- `current_mode: str` — "Cuboid" (default), "Slice", "Cylinder", "Rings"
+- `current_frame_index`, `initial_frame`, `last_frame`, `sampling_rate`
+- Slice: `slit_position`, `slit_width`, `slit_orientation`, `orthogonal_enabled`, `orthogonal_position`
+- Cuboid: `cuboid_border_{left,right,top,bottom}`, `cuboid_fill_mode`, `cuboid_preview_enabled`
+- Chroma: `chroma_enabled`, `chroma_color`, `chroma_tolerance`, `chroma_fade`
+- Cylinder: `cylinder_center_{x,y}`, `cylinder_radius`, `cylinder_fill_mode`, `cylinder_preview_enabled`
+- Rings: `rings_center_{x,y}`, `rings_sampling_mode`, `rings_max_output`
+- Export: `image_format`, `mesh_format`, `output_dir`
+
+**`set_video_source(vs)`**: Closes previous source, resets frame range, sets defaults for slit/rings/cylinder positions.
+
+#### `VideoSource` (`models/video_source.py`)
+
+OpenCV wrapper. Properties: `file_path`, `frame_count`, `fps`, `width`, `height`, `duration_seconds`.
+
+- `get_frame(index)` → RGB `np.ndarray | None` — uses `CAP_PROP_POS_FRAMES` seek (slow but needed for scrubber)
+- `get_frame_range(start, end, step)` → generator of `(index, rgb_array)` — sequential `cap.read()` loop (fast, used by all processors)
+- Context manager support (`with VideoSource(path) as vs:`)
+
+#### `BaseProcessor` (`processing/base_processor.py`)
+
+Abstract `QThread` base class for all processors.
+
+```python
+class BaseProcessor(QThread):
+    progress = Signal(int, int)   # (current_count, total_count)
+    finished = Signal(dict)       # result dict with paths, dimensions, etc.
+    error = Signal(str)           # error message
+    cancelled = Signal()          # emitted when cancel completes
+
+    def __init__(self, project_state, output_dir, parent=None):
+        super().__init__(parent)
+        self._state = project_state
+        self._output_dir = output_dir
+        self._cancelled = False
+
+    def cancel(self): self._cancelled = True
+    def is_cancelled(self): return self._cancelled
+```
+
+Subclasses implement `run()`. Must check `is_cancelled()` every iteration and emit `cancelled` signal if True.
+
+#### `MeshExporter` (`export/mesh_exporter.py`)
+
+**Cuboid**: `export_obj(face_images, dimensions, output_path)`, `export_gltf(face_images, dimensions, output_path)`
+**Cylinder**: `export_cylinder_obj(face_images, dimensions, output_path)`, `export_cylinder_gltf(face_images, dimensions, output_path)`
+**Orthogonal**: `export_orthogonal_obj(v_img, h_img, result, output_path)`, `export_orthogonal_gltf(v_img, h_img, result, output_path)`
+
+- OBJ: Manual vertex/face/UV/MTL writing. 8 vertices, 6 quads, per-face materials. Scale normalized to `max_dim=1.0`.
+- glTF/GLB: trimesh scene with 6 separate meshes, embedded PNG textures.
+- Top face UVs rotated 180° in both OBJ and glTF to match visual orientation.
+
+#### `SlicePreview` (`ui/preview/slice_preview.py`)
+
+Used as the 2D preview for ALL 2D modes (Slice, Rings, unfolded Cuboid/Cylinder).
+
+- `load_image(path, orientation)` — loads a single image (slice, rings output)
+- `load_cuboid_faces(face_images)` — shows R, T, L, B faces side-by-side as horizontal strip (F/K excluded — only in PDF)
+- Zoom buttons (in/out), view mode buttons (Fit/Fill/1:1), rotation, zoom percentage label
+- Per-face toggle buttons (R/T/L/B) with solo-first-then-add selection logic
+
+#### `Preview3D` (`ui/preview/preview_3d.py`)
+
+PyVistaQt-based 3D viewer. Lazy-loaded (not created until first use).
+
+- `display_cuboid(face_images, dimensions, has_transparency)` — 6 UV-mapped planes
+- `display_cylinder(face_images, dimensions)` — N-sided polygon cylinder mesh
+- `display_orthogonal(v_img, h_img, result)` — two crossing textured planes
+- `add_orthogonal_display_frames(display_frames, result)` — semi-transparent frame planes at time positions
+- `add_interior_slices(slices_dir, dimensions)` — for Fill mode with chroma: interior slice planes (faces at 25% opacity)
+- Built-in orbit/zoom/pan from VTK
+
+---
+
+## 3. UI STRUCTURE
+
+### 3.1 Layout (as built)
+
+```
+┌───────────────────────────────────────────────────────────────────────┐
+│  Deep-Vid Visualizer                                                  │
+├──────────────┬────────────────────────────────────────────────────────┤
+│              │ [☰] [Mask Preview] [2D Preview] [3D Preview]           │
+│  VIDEO       │                                                        │
+│  ┌Open File┐ │                                                        │
+│  Info...     │                                                        │
+│              │      QStackedWidget:                                    │
+│  MODE        │      p0: "Open a video file to begin"                  │
+│  [Cuboid ▼]  │      p1: FrameViewer + mask overlay                    │
+│              │      p2+: SlicePreview (lazy)                           │
+│  PARAMS      │      p3+: Preview3D (lazy)                              │
+│  (varies)    │                                                        │
+│              │                                                        │
+│  EXPORT      │                                                        │
+│  PNG/TIFF    ├────────────────────────────────────────────────────────┤
+│  OBJ/glTF   │  FrameScrubber (80px fixed height)                      │
+│              │  [═══════════●════════════════════════]                  │
+│  [GENERATE]  │  Frame 1234/54000   00:41.13                            │
+│  ████░ 45%   │  Initial:[__]  Last:[__]  Sampling:[__]                 │
+└──────────────┴────────────────────────────────────────────────────────┘
+```
+
+**Implementation details**:
+- Layout is `QHBoxLayout` with fixed-width `QScrollArea` sidebar (350px) + stretching preview `QWidget`
+- NOT using `QSplitter` — sidebar has fixed width
+- Preview toolbar: `QToolButton` group (exclusive): Mask(0), 2D(1), 3D(2) + hamburger toggle for sidebar
+- 3D button only visible for Cuboid, Cylinder, or Slice with orthogonal enabled
+- Scrubber hidden when 2D/3D preview is active, shown for Mask Preview
+- Mode control panels in `QStackedWidget`: index 0=Slice, 1=Cuboid, 2=Cylinder, 3=Rings
+- Default mode: Cuboid (stack index 1)
+- On video load → seeks to middle frame (not first, which is often black)
+
+### 3.2 Theme
+
+Dark theme via `resources/styles/theme.qss`. Key colors:
+- Background: `#1e1e1e`, Panels: `#2b2b2b`, Text: `#e0e0e0`
+- Accent: `#703030` (dark red) — buttons, highlights, progress bar
+- Borders: `#3c3c3c`, Input fields: `#333333`, Disabled: `#666666`
+
+### 3.3 Mask Overlays (FrameViewer)
+
+The `FrameViewer` handles ALL mask drawing and drag interaction internally via `configure_for_mode(mode, state)`. No separate draggable_mask widget.
+
+| Mode | Mask | Interaction |
+|------|------|-------------|
+| Slice | Red rectangle at slit position | Drag to move slit. Width = slit_width. Blue line for orthogonal second slit. |
+| Cuboid | 4 semi-transparent red border rectangles | Each edge draggable independently. Min mask 10×10. |
+| Cylinder | Red circle with center crosshair | Center draggable (moves circle). Edge draggable (changes radius). |
+| Rings | Concentric preview rings + center crosshair | Center draggable. |
+
+**Drag signals**: `slit_dragged(int)`, `ortho_slit_dragged(int)`, `cuboid_border_dragged(l,r,t,b)`, `rings_center_dragged(x,y)`, `cylinder_center_dragged(x,y)`, `cylinder_radius_dragged(r)`.
+
+**Eyedropper**: `activate_eyedropper()` → crosshair cursor → click samples pixel → `color_sampled(r,g,b)`.
+
+### 3.4 MainWindow Signal Wiring
+
+Key connections in `MainWindow._connect_signals()`:
+
+```
+video_panel.video_loaded → _on_video_loaded → state + scrubber + frame_viewer
+frame_scrubber.frame_requested → _on_frame_requested → VideoSource.get_frame → FrameViewer
+mode_selector.mode_changed → _on_mode_changed → state + stack swap + overlay + export visibility
+slice_controls.settings_changed → frame_viewer.update  (repaint overlay)
+cuboid_controls.settings_changed → frame_viewer.update
+rings_controls.settings_changed → frame_viewer.update
+cylinder_controls.settings_changed → frame_viewer.update
+frame_viewer.slit_dragged → slice_controls.set_position_from_drag
+frame_viewer.cuboid_border_dragged → cuboid_controls.set_borders_from_drag
+frame_viewer.rings_center_dragged → rings_controls.set_center_from_drag
+frame_viewer.cylinder_center_dragged → cylinder_controls.set_center_from_drag
+frame_viewer.cylinder_radius_dragged → cylinder_controls.set_radius_from_drag
+cuboid_controls.eyedropper_requested → frame_viewer.activate_eyedropper
+frame_viewer.color_sampled → cuboid_controls.set_chroma_color
+generate_panel.generate_btn.clicked → _on_generate
+generate_panel.generation_finished → _on_generation_finished
+export_controls.pdf_btn.clicked → _on_export_pdf
+preview_btn_group.idClicked → _on_preview_toggle
+```
+
+### 3.5 Generate Pipeline (MainWindow._on_generate)
+
+1. Validate: video loaded, valid frame range, mode-specific checks (cuboid mask ≥10×10)
+2. Memory warning if estimated > 1GB
+3. Get output dir from ExportControls (auto-creates subfolder: `{video}_{mode}_{timestamp}/`)
+4. Instantiate processor:
+   - "Slice" → `SliceProcessor(state, output_dir)` (handles orthogonal internally)
+   - "Cuboid" → `CuboidVoidProcessor` or `CuboidFillProcessor` based on `cuboid_fill_mode`
+   - "Cylinder" → `CylinderProcessor(state, output_dir)`
+   - "Rings" → `RingsProcessor(state, output_dir)`
+5. Disable all controls, start processor via `generate_panel.start_with_processor(processor)`
+6. On finish → export mesh (if 3D mode) → show preview → re-enable controls
+
+### 3.6 Preview Toggle Logic
+
+- **Mask (id=0)**: Show FrameViewer + scrubber
+- **2D (id=1)**: Show SlicePreview (lazy-loaded), hide scrubber. Content depends on mode:
+  - Slice: the slit-scan image
+  - Rings: the ring image
+  - Cuboid: unfolded faces (R, T, L, B side-by-side)
+  - Cylinder: unrolled surface texture
+  - Orthogonal: both slices stacked vertically (horizontal rotated 90° CCW)
+- **3D (id=2)**: Show Preview3D (lazy-loaded), hide scrubber. Content depends on mode:
+  - Cuboid: textured box (with optional interior slices for Fill+chroma)
+  - Cylinder: textured cylinder
+  - Orthogonal: two crossing textured planes + display frame planes
+
+---
+
+## 4. COMPLETED WORK SUMMARY
+
+### Phase 1 — Foundation & Core Modes (ALL DONE, 2026-03-30)
+
+| Step | What was built |
+|------|---------------|
+| 1.1 | Project scaffolding, venv, dependencies, main.py |
+| 1.2 | VideoSource model with OpenCV wrapper, 10 unit tests |
+| 1.3 | MainWindow layout (sidebar + preview + scrubber), dark theme QSS |
+| 1.4 | VideoPanel (file loader + metadata), ProjectState (central state) |
+| 1.5 | FrameViewer (frame display + coordinate mapping + overlay callbacks), FrameScrubber (200ms debounce, range/sampling spinboxes) |
+| 1.6 | ModeSelector dropdown (Slice/Cuboid enabled, others disabled initially) |
+| 1.7 | Slice mode: SliceControls, slit overlay + drag, SliceProcessor |
+| 1.8 | Cuboid Void: CuboidControls, border overlay + drag, CuboidVoidProcessor |
+| 1.9 | ExportControls (image/mesh format, output dir, auto-subfolder) |
+| 1.10 | MeshExporter: OBJ+MTL (manual write) + glTF/GLB (trimesh) |
+| 1.11 | Preview3D: PyVistaQt 3D viewer with textured cuboid |
+| 1.12 | GeneratePanel: generate/cancel buttons, progress bar, full pipeline wiring |
+
+**Post-Phase-1 fixes** (Fix-1 through Fix-7): Sidebar width 280→350, spinbox arrow icons, default mode→Cuboid, default output dir→`~/Desktop/Deep-Vid Visualizer`, preview toggle toolbar (Mask/2D/3D), 2D unfolded cuboid preview, face toggle buttons (R/T/L/B), accent color→`#703030`, cancel bug fix, scrubber visibility toggling.
+
+### Phase 2 — Extended Features (ALL DONE, 2026-04-01)
+
+| Step | What was built |
+|------|---------------|
+| 2.1 | Cuboid Fill mode: CuboidFillProcessor saves full frames to `slices/` on disk + generates edge textures. Fill option enabled in CuboidControls with disk usage warning. |
+| 2.2 | Chroma transparency: `chroma_processor.py` with Euclidean RGB distance. `ChromaColorPicker` widget with eyedropper, tolerance/fade sliders, live preview thumbnail. Eyedropper wiring through CuboidControls → FrameViewer. CuboidFillProcessor saves RGBA PNGs when chroma enabled. 3D preview: RGBA textures with VTK opacity, interior slices as semi-transparent planes, faces at 25% opacity. |
+| 2.3 | Cylinder mode: CylinderControls, CylinderProcessor (perimeter sampling with bilinear interpolation), circle overlay + drag in FrameViewer, MeshExporter cylinder OBJ/glTF, Preview3D.display_cylinder. |
+| 2.4 | Rings mode: RingsControls (Auto-sample / All Frames), RingsProcessor (bilinear sampling + gap-filling), concentric ring overlay, 2D preview. |
+| 2.5 | 2D Preview → already `SlicePreview` from Phase 1. Added zoom percentage label. Handles all 2D output types. |
+| 2.6 | Orthogonal Slice: checkbox in SliceControls, two perpendicular slits (red + blue), SliceProcessor generates two images, MeshExporter orthogonal OBJ/glTF, Preview3D crossing planes. Display Frames feature: user chooses which full video frames to render as semi-transparent planes in 3D. |
+| 2.7 | Printable PDF: `unfold_exporter.py` using ReportLab. Cuboid: 4 side strips (T-R-B-L) + F above + K below, fold/cut lines, glue tabs, Fit/Stretch scale modes. Cylinder: unrolled surface + circular caps with petal-shaped glue tabs. ExportControls: paper size (A4/Letter) + scale mode + PDF button. |
+
+**Post-Phase-2 fixes** (Fix-8, Fix-9): Cuboid 2D preview shows R/T/L/B only (F/K removed). PDF redesigned to strip layout. Orthogonal planes positioned at correct slit positions. UV fixes: cylinder surface v-coords, cuboid top face u-coords, orthogonal horizontal plane v-coords. Horizontal orthogonal 2D rotated 90° CCW. Cylinder 3D seam fix (duplicate vertex at UV wrap). Rings max output user-configurable.
+
+---
+
+## 5. REMAINING WORK — PHASE 3 & 4
+
+### Step 3.1: Shot/Cut Detection
+**Status**: [ ] NOT STARTED
+**Complexity**: High
+
+**Objective**: Auto-detect cuts in the video and generate one visualization per shot.
+
+**What to build** — `processing/scene_detector.py`:
+
+Uses the `scenedetect` Python library:
+
+```python
+class SceneDetector:
+    def detect_cuts(self, video_path, threshold=27.0, min_scene_len=15):
+        """Detect shot boundaries.
+        
+        Args:
+            video_path: path to video file
+            threshold: ContentDetector threshold (lower = more sensitive)
+            min_scene_len: minimum scene length in frames
+        
+        Returns:
+            list of (start_frame, end_frame) tuples for each detected scene
+        """
+        from scenedetect import open_video, SceneManager, ContentDetector
+        video = open_video(video_path)
+        scene_manager = SceneManager()
+        scene_manager.add_detector(ContentDetector(threshold=threshold, min_scene_len=min_scene_len))
+        scene_manager.detect_scenes(video)
+        scene_list = scene_manager.get_scene_list()
+        return [(s[0].get_frames(), s[1].get_frames()) for s in scene_list]
+```
+
+**What to build** — `ui/sidebar/shot_detection_controls.py`:
+
+- `QSlider` "Sensitivity" — maps inversely to threshold: slider 0-100, threshold = 50 - slider/2 (so higher slider = lower threshold = more sensitive)
+- `QSpinBox` "Min scene length" — frames or seconds toggle
+- `QPushButton` "Detect Cuts" → runs detection (in a background thread) → populates shot list
+- `QListWidget` showing detected shots: "Shot 1: 00:00-00:05 (150f)", "Shot 2: 00:05-00:12 (210f)", etc.
+- `QCheckBox` "Generate per shot" — when enabled, the generation loop iterates over each shot
+- The panel appears in the sidebar BEFORE the mode-specific controls
+
+**Integration with generation**:
+- When "Generate per shot" is on, the generate pipeline:
+  1. Creates a subdirectory per shot: `shot_01/`, `shot_02/`, etc.
+  2. Runs the active processor for each shot with its frame range
+  3. Progress: "Shot 3/15 — Frame 2340/5400..."
+- For printable unfold: all cubes use uniform size
+- For 3D export: separate files per shot (default) or single scene (checkbox)
+
+**Verification**: Detect cuts → shot list populated. Adjust sensitivity → more/fewer shots. Generate per shot → one output set per shot.
+
+**KNOWN ERRORS** (agent: fill this table before marking step DONE):
+
+| Error Message | Trigger | Severity | Fix |
+|--------------|---------|----------|-----|
+| _(to be filled by implementing agent)_ | | | |
+
+**REMARKS**: _(agent notes after completion)_
+
+---
+
+### Step 3.2: Slit-Tear Mode (Free-Drawing)
+**Status**: [x] DONE — 2026-04-06
+**Estimated complexity**: Very High
+
+**Objective**: User draws arbitrary lines on the frame; pixels under those lines are sampled through time.
+
+This produces a 2D image where the x-axis is time and the y-axis is the concatenation of all sampled pixels along the drawn lines. Multiple lines can track different parts of the frame simultaneously.
+
+#### Part A: Drawing Canvas — `ui/widgets/drawing_canvas.py`:
+
+Class `DrawingCanvas` — transparent overlay on the FrameViewer:
+- **Drawing mode**: Click and drag to draw a freeform line
+- Lines stored as ordered lists of (x, y) points in frame coordinates
+- Multiple lines supported, each in a different color (auto-assigned: red, blue, green, yellow, cyan, magenta, ...)
+- Undo: Ctrl+Z removes the last drawn line
+- Clear all: button in sidebar
+- Lines are visible on the overlay with their assigned color, 2px width
+
+#### Part B: UI Controls — `ui/sidebar/slittear_controls.py`:
+
+- List of drawn lines with pixel count per line
+- "Clear All" and "Undo" buttons
+- `QSpinBox` "Line Width" — radius around the drawn path (1-10px). Width=1 means exactly the drawn pixels. Width>1 captures a band of pixels around the path.
+
+#### Part C: Processor — `processing/slittear_processor.py`:
+
+Algorithm:
+1. For each drawn line, rasterize to an ordered list of (x, y) pixel coordinates
+   - Use Bresenham's algorithm between consecutive points in the path
+   - Deduplicate adjacent identical coordinates
+2. Concatenate all lines' pixel lists into one ordered list. Insert a separator marker between lines.
+3. For each sampled frame:
+   ```python
+   strip = []
+   for (x, y) in all_pixel_coords:
+       if is_separator:
+           strip.append([128, 128, 128])  # gray separator pixel
+       else:
+           strip.append(frame[y, x])
+   column.append(strip)
+   ```
+4. Stack columns horizontally: output shape = (total_pixels, num_frames, 3)
+5. Save as 2D image. Gray horizontal lines separate the different drawn line regions.
+
+**Verification**: Draw lines on frame. Undo works. Generate → 2D image with distinct bands per drawn line.
+
+**KNOWN ERRORS**:
+
+| Error Message | Trigger | Severity | Fix |
+|--------------|---------|----------|-----|
+| "No lines drawn. Draw at least one line on the frame." | User clicks Generate without drawing any lines | Low | Shown as QMessageBox warning. Draw at least one line. |
+| "No valid pixels in drawn lines." | All drawn lines have fewer than 2 points (edge case) | Low | Processor error signal. Re-draw lines. |
+| "No frames were processed." | Frame range yields zero frames (initial > last with sampling) | Low | Processor error signal. Check frame range settings. |
+
+**REMARKS**: Implemented with disk-based strip storage (`.npy` files in `_strips_tmp/`) to avoid RAM saturation on long videos — similar architecture to CuboidFillProcessor. DrawingCanvas is a QObject data model (not a widget overlay); drawing interaction is handled directly in FrameViewer's mouse events for consistency with other modes. Line width ≥ 2 uses perpendicular band expansion based on local tangent. 3D preview displays each drawn line as a textured "curtain" mesh (2D surface following the path in XY, extending along Z/time) inside a wireframe cuboid representing the video volume. Long lines are subsampled to max ~500 mesh segments for preview performance. Slit-Tear mode auto-assigned to mode_controls_stack index 2. Ctrl+Z undo handled via SlitTearControls signal → DrawingCanvas.undo().
+
+---
+
+### Step 3.3: Object Extraction (Edge Detection + AI Segmentation)
+**Status**: [x] DONE — 2026-04-17
+**Estimated complexity**: Very High
+
+**Objective**: Extract object silhouettes from each frame for the filled cuboid, enabling "figure trails" through time. Two extraction backends: classical edge detection (zero dependencies) and U²-Net AI segmentation (ONNX Runtime). Both support fully automatic and point-prompt (click-to-select) modes.
+
+**What was built** — `processing/object_detector.py`:
+
+- **Edge Detection** (`extract_edge_mask`): Canny + morphological closing + contour filling. Params: canny_low, canny_high, dilate_iter, min_area. Auto mode keeps all contours above min_area; point-prompt keeps only the contour containing the clicked point.
+- **AI Segmentation** (`extract_ai_mask`): U²-Net salient object detection via ONNX Runtime. Model cached at `~/.cache/deep-vid-visualizer/models/`. Two models: u2netp (4.7 MB, fast) and u2net (176 MB, quality). Auto mode thresholds the probability map; point-prompt keeps only the connected component at the clicked point.
+- **Unified API** (`extract_mask`): Dispatches to the correct backend based on `mode` parameter.
+- **`apply_extraction_mask`**: Applies binary mask to RGB image → RGBA output.
+- **Model download**: `download_model(model_name, progress_callback)` downloads from GitHub to cache dir.
+- ONNX session is lazy-loaded and cached globally. Supports CUDA, CoreML, DirectML, and CPU providers.
+
+**What was built** — UI in `ui/sidebar/cuboid_controls.py`:
+
+- Fill Mode dropdown now enabled: "Void (edges only)" / "Fill (all pixels)"
+- Extraction group (visible only in Fill mode) with Method dropdown: None / Chroma Key / Edge Detect / AI Segment
+- Stacked sub-panels per extraction method:
+  - **Chroma Key**: Color swatch + Pick button (eyedropper) + Tolerance slider + Fade slider
+  - **Edge Detect**: Canny Low/High sliders + Close gaps slider + Min area spinbox
+  - **AI Segment**: Model selector (u2netp/u2net) + Download Model button + Confidence slider
+- Shared controls (for Edge Detect + AI Segment): Invert mask checkbox, Select Object button (point-prompt), Preview Mask button, Clear Point button
+- `eyedropper_requested`, `preview_mask_requested`, `prompt_point_requested`, `download_model_requested` signals
+
+**What was built** — `ui/preview/frame_viewer.py` additions:
+
+- `point_sampled(int, int)` signal: emits (x, y) in frame coordinates
+- `activate_point_prompt()`: enters crosshair mode for extraction point selection
+- `show_mask_overlay(mask)`: paints semi-transparent green (foreground) / red (background) overlay
+- `_paint_mask_overlay()`: renders the mask as a colored RGBA overlay scaled to the frame rect
+- Mask overlay auto-clears when frame changes
+
+**What was built** — Integration:
+
+- `processing/cuboid_fill_processor.py`: Now checks `extraction_mode` state. Routes to `apply_chroma_key` (chroma), `extract_mask + apply_extraction_mask` (edge/AI), or raw RGB (none). Both per-frame slices and face textures support all extraction modes.
+- `ui/main_window.py`: Wires `preview_mask_requested` → runs extraction on current frame → `frame_viewer.show_mask_overlay`. Wires `prompt_point_requested` → `frame_viewer.activate_point_prompt` → `point_sampled` → `cuboid_controls.set_prompt_point` → auto-runs preview. Wires `download_model_requested` → background download thread with QProgressDialog.
+- `models/project_state.py`: Added `extraction_mode`, `edge_canny_low/high`, `edge_dilate`, `edge_min_area`, `ai_model`, `ai_confidence`, `extraction_prompt_point`, `extraction_invert`.
+- `config.py`: Added `DETECTION_MODEL_CACHE_DIR`, model URLs/filenames, `DETECTION_INPUT_SIZE`, `DETECTION_PREVIEW_MAX_SIZE`.
+- `pyproject.toml`: Added `onnxruntime>=1.16` to dependencies.
+
+**Verification**: 
+- Select Fill mode → Extraction group appears. Select Edge Detect or AI Segment → method-specific controls shown.
+- Click "Preview Mask" → green/red overlay on current frame. Click "Select Object" → crosshair → click on object → mask shows only that object.
+- AI Segment: if model not downloaded, "Download Model" button appears. Download completes → status shows "✓ Model ready".
+- Generate with Edge Detect or AI Segment → RGBA PNG slices with transparent backgrounds saved to `slices/`. 3D preview shows figure trails.
+
+**KNOWN ERRORS**:
+
+| Error Message | Trigger | Severity | Fix |
+|--------------|---------|----------|-----|
+| "Model file not found: {path}. Run download_model(…) first." | AI Segment selected but model not downloaded | Medium | Click "Download Model" button or run download manually |
+| "Failed to download {model}: {error}" | Network error during model download | Medium | Check internet connection, retry |
+| "⚠ onnxruntime not installed" | onnxruntime package missing | Medium | `pip install onnxruntime` |
+| Empty mask (no foreground detected) | Edge detect with wrong thresholds or AI on uniform image | Low | Adjust Canny thresholds / confidence, or use point-prompt |
+| Slow processing with AI on CPU | Large video + AI segment without GPU | Low | Use Edge Detect instead, or increase sampling rate |
+
+**REMARKS**: Edge detection is always available (uses only OpenCV). AI segmentation requires onnxruntime (installed by default) + model download (u2netp: 4.7 MB auto-downloads quickly; u2net: 176 MB needs explicit download). Point-prompt for edge detection finds the smallest contour containing the point; for AI it finds the connected component at the point in the thresholded probability map. Mask overlay uses green tint (40% opacity) for foreground and red tint (30% opacity) for background. Invert flag is applied in `extract_mask()` before returning, so `apply_extraction_mask` receives the already-inverted mask. The ChromaColorPicker widget (`ui/widgets/color_picker.py`) still exists but is no longer used directly — chroma controls are now integrated into CuboidControls.
+
+---
+
+## 7. PHASE 4 — POLISH & DISTRIBUTION
+
+---
+
+### Step 4.1: UI Polish
+**Status**: [ ] NOT STARTED
+
+- App icon (design or placeholder) for macOS (.icns) and Windows (.ico)
+- About dialog: version, credits, links
+- Keyboard shortcuts: Space (play), Left/Right (prev/next frame), Ctrl+O (open), Ctrl+G (generate), Escape (cancel)
+- Menu bar: File → Open/Export/Quit, View → Zoom/Reset, Help → About
+- QSettings: save/restore window geometry, last directory, last settings
+- Tooltips on all controls
+- Error handling: graceful dialogs for all failures (bad codec, disk full, out of memory)
+- HiDPI / Retina testing (Qt handles most of this)
+
+**KNOWN ERRORS** (agent: fill this table before marking step DONE):
+
+| Error Message | Trigger | Severity | Fix |
+|--------------|---------|----------|-----|
+| _(to be filled by implementing agent)_ | | | |
+
+**REMARKS**: _(agent notes after completion)_
+
+---
+
+### Step 4.2: macOS Packaging
+**Status**: [ ] NOT STARTED
+
+- PyInstaller spec file: bundle all deps, Qt6, resources
+- .icns icon
+- Build: `pyinstaller packaging/deep_vid_visualizer.spec`
+- Create DMG with `create-dmg` or `dmgbuild`
+- Test on clean macOS (no Python installed)
+
+**KNOWN ERRORS** (agent: fill this table before marking step DONE):
+
+| Error Message | Trigger | Severity | Fix |
+|--------------|---------|----------|-----|
+| _(to be filled by implementing agent)_ | | | |
+
+**REMARKS**: _(agent notes after completion)_
+
+---
+
+### Step 4.3: Windows Packaging
+**Status**: [ ] NOT STARTED
+
+- PyInstaller spec: .ico icon, version info, no admin UAC
+- Installer with NSIS or Inno Setup, or ship as standalone folder
+- Test on clean Windows
+
+**KNOWN ERRORS** (agent: fill this table before marking step DONE):
+
+| Error Message | Trigger | Severity | Fix |
+|--------------|---------|----------|-----|
+| _(to be filled by implementing agent)_ | | | |
+
+**REMARKS**: _(agent notes after completion)_
+
+---
+
+### Step 4.4: Documentation
+**Status**: [ ] NOT STARTED
+
+- User guide (PDF/HTML) with screenshots
+- README.md: install, quick start, mode descriptions
+- Developer guide: architecture, how to add modes
+
+**KNOWN ERRORS** (agent: fill this table before marking step DONE):
+
+| Error Message | Trigger | Severity | Fix |
+|--------------|---------|----------|-----|
+| _(to be filled by implementing agent)_ | | | |
+
+**REMARKS**: _(agent notes after completion)_
+
+---
+
+## 8. DEPENDENCIES
+
+### Core (Phase 1)
+```
+PySide6>=6.6
+opencv-python>=4.8
+numpy>=1.24
+Pillow>=10.0
+pyvista>=0.43
+pyvistaqt>=0.11
+trimesh>=4.0
+pygltflib>=1.16
+```
+
+### Phase 2 Additions
+```
+reportlab>=4.0              # PDF generation for printable unfolds
+```
+
+### Phase 3 Additions
+```
+scenedetect[opencv]>=0.6    # Shot/cut detection
+onnxruntime>=1.16            # AI segmentation (U²-Net)
+```
+
+### Optional Add-On (SAM2 — not yet implemented)
+```
+torch>=2.0
+segment-anything-2
+```
+
+### Development & Packaging
+```
+pytest>=7.0
+pyinstaller>=6.0
+```
+
+---
+
+## 9. STEP DEPENDENCY GRAPH
+
+Steps within a phase should generally be done in order. Some can be parallelized.
+
+```
+PHASE 1:
+  1.1 Scaffolding ─────────┐
+  1.2 Video Source ─────────┤  (these 3 are independent foundations)
+  1.3 Main Window Layout ──┘
+          │
+          ▼
+  1.4 Video Panel ─────────┐
+  1.5 Frame Preview ───────┤  (build simultaneously)
+  1.6 Mode Selector ───────┘
+          │
+     ┌────┴────┐
+     ▼         ▼
+  1.7 Slice  1.8 Cuboid Void    (can be built in parallel)
+     │         │
+     └────┬────┘
+          ▼
+  1.9 Export Controls
+          │
+          ▼
+  1.10 3D Mesh Export
+          │
+          ▼
+  1.11 3D Preview
+          │
+          ▼
+  1.12 Generate Pipeline ← ties everything together
+
+PHASE 2:
+  2.1 Cuboid Fill ──→ 2.2 Chroma (depends on 2.1)
+  2.3 Cylinder         (independent)
+  2.4 Rings            (independent)
+  2.5 2D Preview       (needed by 2.4, 1.7 output viewing)
+  2.6 Orthogonal       (depends on 1.7 Slice)
+  2.7 Printable Unfold (depends on 1.8 or 2.3)
+
+PHASE 3:
+  3.1 Shot Detection   (independent, integrates with any mode)
+  3.2 Slit-Tear        (independent)
+  3.3 Object Detection (depends on 2.1)
+
+PHASE 4:
+  4.1 → 4.2 and 4.3 (parallel) → 4.4
+```
+
+---
+
+## 10. RISK MITIGATIONS
+
+| Risk | Impact | Mitigation |
+|------|--------|-----------|
+| Out of memory on long videos | Crash | Streaming extraction. Memory estimation + warning. Sampling rate. |
+| Disk full on Cuboid Fill | Crash | Show estimated disk usage before generation. |
+| 3D preview crash on huge textures | VTK error | Cap textures at 2048×2048. Preview is optional. |
+| Rings output impossibly large | Memory/disk | Cap at RINGS_MAX_OUTPUT_DIAMETER (8192px). Auto-sample mode. |
+| PyInstaller bundle too large | Distribution | Exclude unused Qt modules. SAM2 is separate optional install. |
+| Slow scrubber seeking | Bad UX | Debounce 200ms. Sequential read for generation. |
+| VTK/PyVista texture issues | Bad preview | Fallback: use individual textured planes instead of single box mesh. |
+| Cross-platform differences | Bugs | Test macOS + Windows at end of each phase. |
+| Codec not supported | Can't load video | OpenCV FFmpeg backend handles most. Show error dialog for unsupported. |
+| User draws empty slit-tear | Crash | Validate at least one line drawn before generation. |
+
+---
+
+## 11. GLOSSARY
+
+| Term | Definition |
+|------|-----------|
+| **Void cuboid** | 3D box showing only the 6 outer face textures extracted from video frame edges through time. Fast, low memory. |
+| **Filled cuboid** | 3D box with ALL interior pixels captured (full frame per slice). Slow, high disk usage. Each interior slice is saved as a separate image. |
+| **Slit-scan / Slice** | Classic technique: extract a thin strip of pixels from each video frame. Concatenated strips form a 2D temporal image. Time flows along one axis. |
+| **Rings / Cone** | Dendrochronology-inspired 2D visualization. Center = first frame's center pixel. Concentric rings expand outward, each ring = one frame's pixels at increasing radius. Like tree rings. |
+| **Slit-tear** | Multiple user-drawn freeform lines sampled through time (from Tang et al.). Produces a composite 2D image where each band corresponds to one drawn line. Can track different frame regions simultaneously. |
+| **Cylinder** | Like cuboid but with a circular mask. The perimeter pixels through time form the cylinder surface texture. |
+| **Sedimentation rate / Sampling rate** | Use every Nth frame (N=1 means all frames). Reduces memory and processing time proportionally. Like geological sedimentation — sampling layers rather than examining every grain. |
+| **Chroma key** | Making a selected color transparent. Like green screen in film. Tolerance controls how similar a pixel must be. Fade creates smooth edges. |
+| **Shot detection** | Automatic identification of cuts/transitions in video. Using PySceneDetect's ContentDetector which measures frame-to-frame difference. |
+| **Mask** | The region of the video frame selected for pixel extraction. Shape depends on mode: rectangle (cuboid), circle (cylinder), line (slice), freeform (slit-tear). Displayed as a red overlay on the frame preview. |
+| **Face images / textures** | The 6 images (front, back, top, bottom, left, right) that map onto the 6 faces of a cuboid or the caps/surface of a cylinder. |
+| **Orthogonal** | Two slices perpendicular to each other forming a cross shape in 3D space. |
+| **Unfold / Printable** | A 2D layout of a 3D object's faces arranged for cutting, folding, and gluing into a physical paper model. Standard cross pattern for cubes. |
+
+---
+
+## 12. KNOWN ERRORS & TROUBLESHOOTING
+
+This section is the **master error reference**. Agents must add every runtime error here as they complete each step. Users: search this section for the error message you see in the terminal.
+
+### How to use this section (for the user)
+
+1. Copy the **last line** of the error traceback you see in the terminal
+2. Search this document (Ctrl+F / Cmd+F) for that text
+3. Find the matching entry below — it will tell you what causes it and how to fix it
+4. If your error is NOT listed here, paste the **full traceback** when reporting it — the implementing agent missed documenting it
+
+### Error Catalog
+
+> Agents: Add errors here as you complete each step. Group by step number. Use the exact format below.
+
+---
+
+#### Phase 1 Errors
+
+| Step | Error Message | Trigger | Severity | Fix |
+|------|--------------|---------|----------|-----|
+| 1.1 | `ModuleNotFoundError: No module named 'PySide6'` | Dependencies not installed | Crash | `source .venv/bin/activate && pip install PySide6` |
+| 1.1 | `ModuleNotFoundError: No module named 'ui.main_window'` | Running from wrong directory | Crash | `cd deep_vid_visualizer/` before running |
+| 1.2 | `ValueError: Cannot open video file: {path}` | Bad file path or unsupported codec | Crash (caught) | Verify file exists and plays in standard player |
+| 1.2 | `OpenCV: Couldn't read video stream from file` | OpenCV codec issue | Warning | Install additional codecs or try different video format |
+| 1.4 | `ValueError: Cannot open video file: {path}` | Unsupported or corrupt video file | Crash (caught as dialog) | Try a different video format; shown via QMessageBox |
+
+#### Phase 2 Errors
+
+| Step | Error Message | Trigger | Severity | Fix |
+|------|--------------|---------|----------|-----|
+| 2.1 | `OSError: [Errno 28] No space left on device` | Disk full during Fill export | Crash | Free disk space or increase sampling rate |
+| 2.1 | `Mask area is too small` | Border values too large | Crash (caught) | Reduce border spinbox values |
+| 2.2 | Eyedropper does not pick color | Clicking outside the frame area | Cosmetic | Click directly on the video frame |
+| 2.2 | Chroma has no visible effect | Tolerance set to 0 | Bad output | Increase tolerance slider (5–15%) |
+| 2.2 | Output PNGs are RGB not RGBA | Chroma not enabled or TIFF selected | Bad output | Enable chroma + use PNG format |
+| 2.3 | `Circle extends outside frame bounds` | Center near edge + large radius | Crash (caught) | Move center or reduce radius |
+| 2.3 | `No frames were processed.` | Invalid frame range | Crash (caught) | Check frame range settings |
+| 2.4 | `No frames were processed.` | Invalid frame range | Crash (caught) | Check frame range settings |
+| 2.6 | `No frames were processed.` | Invalid frame range with orthogonal | Crash (caught) | Check frame range settings |
+| 2.6 | 3D preview shows planes at origin | Both slits at same default | Cosmetic | Drag slits apart on frame preview |
+| 2.7 | `ReportLab error` or blank PDF | Face images with unexpected shape | Bad output | Ensure RGB uint8 images |
+| 2.7 | PDF faces appear mirrored | Incorrect flip for a face | Cosmetic | Adjust flip params in unfold_exporter.py |
+| 2.7 | Glue tabs overlap face images | Very small depth relative to width | Cosmetic | Reduce TAB_SIZE in unfold_exporter.py |
+| 2.5-fix | F/K face toggle buttons missing | Removed intentionally — F/K not shown in 2D preview | N/A | F/K only used in PDF unfold, not in 2D preview |
+| 2.6-fix | Display frames not appearing in 3D | frames_input text empty or out of range | Cosmetic | Enter valid frame numbers within the initial–last range |
+| 2.7-fix | PDF layout differs from old version | Redesigned to strip layout (T-R-B-L + F above + K below) | N/A | Intentional redesign per user request |
+| Fix-9 | Cylinder caps show wrong frame | Surface UV v-coords were inverted: z=0 mapped to last frame | Bad output | RESOLVED: swapped v-coords in display_cylinder surface mesh |
+| Fix-9 | Cuboid top face spatially mirrored | Top face UV u-coords were reversed (1,0 swap) | Bad output | RESOLVED: corrected top UVs to (0,1),(1,1),(1,0),(0,0) |
+| Fix-9 | Orthogonal horizontal plane time-reversed | Horizontal plane UV v=0 at z=0 mapped to last frame | Bad output | RESOLVED: flipped v-coords on horizontal mesh |
+| Fix-9 | Orthogonal 2D horizontal slice shows time vertically | h_result stacks frames as rows, not columns | Bad output | RESOLVED: rotate 90° CCW before display |
+| Fix-9 | Fill cuboid interior slices hidden by faces | Opaque faces obscure interior content | Bad output | RESOLVED: faces now 25% opacity when interior slices shown |
+
+#### Phase 3 Errors
+
+| Step | Error Message | Trigger | Severity | Fix |
+|------|--------------|---------|----------|-----|
+| 3.2 | "No lines drawn. Draw at least one line on the frame." | Generate without drawing lines | Low | Draw at least one line on the frame |
+| 3.2 | "No valid pixels in drawn lines." | Lines have fewer than 2 points | Low | Re-draw lines |
+| 3.2 | "No frames were processed." | Invalid frame range | Low | Check frame range settings |
+| 3.3 | "Model file not found: {path}. Run download_model(…) first." | AI Segment without model downloaded | Medium | Click "Download Model" button |
+| 3.3 | "Failed to download {model}: {error}" | Network error during model download | Medium | Check internet, retry |
+| 3.3 | "⚠ onnxruntime not installed" | onnxruntime package missing | Medium | `pip install onnxruntime` |
+| 3.3 | Empty mask (no foreground) | Bad thresholds or uniform image | Low | Adjust Canny/confidence or use point-prompt |
+
+#### Phase 4 Errors
+
+| Step | Error Message | Trigger | Severity | Fix |
+|------|--------------|---------|----------|-----|
+| _(filled by agent)_ | | | | |
+
+#### Common Environment Errors
+
+These are not from the app code itself, but from the environment setup:
+
+| Error Message | Trigger | Fix |
+|--------------|---------|-----|
+| `ModuleNotFoundError: No module named 'PySide6'` | Dependencies not installed | Run `pip install -e .` in the project folder |
+| `ModuleNotFoundError: No module named 'cv2'` | OpenCV not installed | Run `pip install opencv-python` |
+| `qt.qpa.plugin: Could not find the Qt platform plugin` | Qt platform issue on some systems | Set env var: `export QT_QPA_PLATFORM=xcb` (Linux) or reinstall PySide6 |
+| `ImportError: libGL.so.1: cannot open shared object file` | Missing OpenGL on headless Linux | Run `apt install libgl1-mesa-glx` |
+| `OSError: [Errno 28] No space left on device` | Disk full during Cuboid Fill export | Free disk space or increase sampling rate to reduce output size |
+| `MemoryError` or process killed | Not enough RAM for long video | Increase sampling rate, reduce frame range, or close other apps |
+
+---
+
+## AGENT LOG
+
+Use this section to log completed steps, issues encountered, decisions made, and errors documented during implementation.
+
+```
+Date       | Step  | Agent  | Status    | Errors Logged? | Notes
+-----------+-------+--------+-----------+----------------+----------------------------------
+2026-03-30 | 1.1   | Copilot| DONE      | Yes            | Scaffolding, venv, deps installed
+2026-03-30 | 1.2   | Copilot| DONE      | Yes            | VideoSource model, 10/10 tests pass
+2026-03-30 | 1.3   | Copilot| DONE      | Yes            | Main window layout + dark theme QSS
+2026-03-30 | 1.4   | Copilot| DONE      | Yes            | ProjectState + VideoPanel with file loader
+2026-03-30 | 1.5   | Copilot| DONE      | Yes            | FrameViewer + FrameScrubber with debounce
+2026-03-30 | 1.6   | Copilot| DONE      | Yes            | ModeSelector + MainWindow full wiring
+2026-03-30 | 1.7   | Copilot| DONE      | No             | SliceControls, slit overlay, SliceProcessor
+2026-03-30 | 1.8   | Copilot| DONE      | No             | CuboidControls, border overlay, CuboidVoidProcessor
+2026-03-30 | 1.9   | Copilot| DONE      | No             | ExportControls, image format, output dir
+2026-03-30 | 1.10  | Copilot| DONE      | No             | MeshExporter: OBJ + glTF/GLB export
+2026-03-30 | 1.11  | Copilot| DONE      | No             | Preview3D with PyVistaQt, UV-mapped meshes
+2026-03-30 | 1.12  | Copilot| DONE      | No             | GeneratePanel, pipeline wiring, progress bar
+2026-03-30 | Fix-1 | Copilot| DONE      | No             | Sidebar resizability, SpinBox arrow icons, 3D preview default ON, hide 3D format in Slice mode, slit width max→500
+2026-03-30 | Fix-2 | Copilot| DONE      | No             | Side texture transpose fix (L/R), OBJ top face 180° UV rotation, OBJ scale normalization, redundant textures/ folder removed, glTF top UV fix, preview camera position
+2026-03-31 | Fix-3 | Copilot| DONE      | No             | Default output dir ~/Desktop/Deep-Vid Visualizer, fill mode horizontal-only drag, arrow icon recolor (#e0e0e0), down-arrow icon created
+2026-03-31 | Fix-4 | Copilot| DONE      | No             | Preview toggle toolbar (Mask/2D/3D), 2D unfolded cuboid preview, Load Preview button + signal, secondary button QSS, QToolButton styles
+2026-03-31 | Fix-5 | Copilot| DONE      | No             | SlicePreview rewrite: face order R→T→L→B, top/bottom rot90(k=1), floating zoom in/out buttons, R/T/L/B face toggle buttons with solo-first-then-add logic, zoom icons generated (20×20 #b0b0b0)
+2026-03-31 | Fix-6 | Copilot| DONE      | No             | Accent color: yellow #e6a817 → dark red #703030. QGroupBox child bg transparency fix. Default mode → Cuboid. Default output dir set at startup. Face matching: flipud(right), flipud(rot90(bottom)). Development Manual updated through Phase 1 completion.
+2026-03-31 | Fix-7 | Copilot| DONE      | No             | Cuboid controls shown by default (stack index 1). GroupBox title color darkened (#908080). Mask Preview selected on video load and mode change. Frame scrubber hidden in 2D/3D preview, shown in Mask. Cancel bug fixed: processors emit cancelled signal, GeneratePanel._on_cancelled resets UI and re-enables controls.
+2026-04-01 | 2.1   | Copilot| DONE      | Yes            | Cuboid Fill mode wired: MainWindow dispatches CuboidFillProcessor when fill_mode='Fill'. CuboidFillProcessor + CuboidControls Fill UI already existed.
+2026-04-01 | 2.4   | Copilot| DONE      | Yes            | Rings mode: RingsControls, RingsProcessor, FrameViewer rings overlay + drag, ModeSelector enabled, generate pipeline + 2D preview wired.
+2026-04-01 | 2.2   | Copilot| DONE      | Yes            | Chroma transparency: ChromaColorPicker widget, chroma_processor, eyedropper wiring, CuboidFillProcessor RGBA output, 3D preview transparency + interior slices.
+2026-04-01 | 2.3   | Copilot| DONE      | Yes            | Cylinder mode: CylinderControls, CylinderProcessor, FrameViewer circle overlay + drag, MeshExporter cylinder OBJ/glTF, Preview3D.display_cylinder, ModeSelector enabled.
+2026-04-01 | 2.5   | Copilot| DONE      | Yes            | 2D Preview already complete (SlicePreview). Added zoom percentage label. Marked as done.
+2026-04-01 | 2.6   | Copilot| DONE      | Yes            | Orthogonal mode: 2 crossing slices, 3D preview, mesh export, 2D preview stacked, dynamic 3D button + export format toggling.
+2026-04-01 | 2.7   | Copilot| DONE      | Yes            | Printable unfold PDF: export/unfold_exporter.py with cuboid cross pattern + cylinder strip+caps. ReportLab. Paper size combo + PDF button in ExportControls.
+2026-04-01 | Fix-8 | Copilot| DONE      | Yes            | 2D cuboid preview: removed F/K faces and toggle buttons (only R,T,L,B shown). PDF unfold redesigned to strip layout (T-R-B-L rectangle + F above R + K below R) with Fit/Stretch scale mode. Orthogonal 3D preview: planes now positioned at correct slit positions. Added Display Frames feature (central/specific/every-N) with frame planes in 3D preview.
+2026-04-01 | Fix-9 | Copilot| DONE      | Yes            | Cylinder 3D caps fix: swapped surface UV v-coords so z=0→first frame matches cap_front. Cuboid top face UV fix: u-coords were reversed causing spatial mirror. Orthogonal 3D: flipped horizontal plane v-coords for correct temporal direction. Orthogonal 2D: rotated horizontal slice 90° CCW so time runs left-to-right. Rings max output: added user-configurable max resolution spinbox (visible in All Frames mode). Cuboid fill interior: faces now semi-transparent (25% opacity) when interior slices are shown, stride default reduced to 10.
+           |       |        |           |                |
+```
