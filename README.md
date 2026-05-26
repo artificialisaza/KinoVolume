@@ -69,8 +69,22 @@ To do: The app also includes previous/next hard-cut helpers in the frame scrubbe
 
 - Developed by Andrés Isaza-Giraldo at i2ADS, Porto.
 - Parts of the codebase were developed with the aid of coding agents, especially Claude Opus 4.6.
-- The interface direction was informed by [video-2-slit-scan](https://github.com/andrewringler/video-2-slit-scan).
-- The project also draws conceptual inspiration from Tang et al.'s slit-tear work and from Fels' Interactive Videocubism.
+
+### Interface inspiration
+
+The interface direction was informed by **Andrew Ringler**'s [video-2-slit-scan](https://github.com/andrewringler/video-2-slit-scan), an open-source tool for slit-scan photography from video.
+
+### Research that shaped this project
+
+KinoVolume draws on a body of work around spatialized video and temporal imaging. If you want to dig deeper into the ideas behind the modes, these are good starting points:
+
+- **Fels, Sidney, Eric Lee, and Kenji Mase** — [Techniques for Interactive Video Cubism](https://doi.org/10.1145/354384.354535) (ACM Multimedia, 2000). The original framing of video as a three-dimensional cuboid object that can be sliced, rotated, and sampled.
+
+- **Ferguson, Kevin L.** — [Volumetric Cinema](https://doi.org/10.16995/intransition.11331) ([In]Transition, 2015). A video essay exploring what it means to treat film as a spatial volume rather than a time-based sequence.
+
+- **Tang, Anthony, Saul Greenberg, and Sidney Fels** — [Exploring Video Streams Using Slit-Tear Visualizations](https://doi.org/10.1145/1385569.1385601) (AVI, 2008). The paper that introduced slit-tear as a way to sample freeform paths through video over time — directly behind KinoVolume's Slit-tear mode.
+
+- **Kitasenju Design** — [Structure of Slit-scan](https://kitasenjudesign.com/slitscan/structure/) (2022). A clear visual explanation of how slit-scan sampling works spatially and temporally.
 
 ## Screenshots and output examples
 
@@ -128,7 +142,7 @@ If you want the test tools as well:
 python -m pip install -e ".[dev]"
 ```
 
-### macOS release build and notarization
+### macOS build
 
 From the project root, these scripts produce distributable macOS artifacts:
 
@@ -140,35 +154,6 @@ Build unsigned app + DMG:
 
 ```bash
 ./packaging/macos/build_release.sh
-```
-
-Build signed and notarized release (interactive prompts enabled by default):
-
-```bash
-./packaging/macos/build_release.sh --notarize
-```
-
-What the script asks for when needed:
-
-- `Developer ID Application` identity for `codesign`
-- Notary profile name (defaults to `kinovolume-notary`)
-- Apple ID, Team ID, and app-specific password only if the notary profile does not exist yet
-
-One-time manual setup alternative (stores credentials in Keychain):
-
-```bash
-xcrun notarytool store-credentials kinovolume-notary \
-  --apple-id "your-apple-id@example.com" \
-  --team-id "YOURTEAMID" \
-  --password "xxxx-xxxx-xxxx-xxxx"
-```
-
-Then run notarization without prompts:
-
-```bash
-DEVELOPER_ID_APPLICATION="Developer ID Application: Your Name (TEAMID)" \
-NOTARY_PROFILE="kinovolume-notary" \
-./packaging/macos/build_release.sh --notarize --no-prompt
 ```
 
 DMG-only packaging (no rebuild):
