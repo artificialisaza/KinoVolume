@@ -283,6 +283,27 @@ if [[ "$NOTARIZE_RELEASE" -eq 1 ]]; then
   spctl -a -vvv --type open "$DMG_PATH_ABS" || true
 fi
 
+# ============================================================
+# Create a code-signature-safe ZIP using ditto
+# Unlike plain 'zip' or Finder's "Compress", ditto preserves
+# symlinks, resource forks, and code signatures inside .app
+# bundles. This prevents the "damaged, move to Trash" error
+# when users download and extract a zipped app.
+# ============================================================
+APP_NAME="$(basename "$APP_PATH_ABS")"
+APP_STEM="${APP_NAME%.app}"
+ZIP_PATH="$(dirname "$DMG_PATH_ABS")/${APP_STEM// /-}-v${VERSION:-0.0}.zip"
+echo "Creating code-signature-safe ZIP (ditto) …"
+/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_PATH_ABS" "$ZIP_PATH"
+echo "ZIP:  $ZIP_PATH"
+
 echo "Release build complete."
 echo "App: $APP_PATH_ABS"
 echo "DMG: $DMG_PATH_ABS"
+echo "ZIP:  $ZIP_PATH"
+echo ""
+echo "Distribution tips:"
+echo "  • DMG (recommended): drag-and-drop install, best UX."
+echo "  • ZIP: uses ditto to preserve the code signature."
+echo "    Users still need to right-click → Open the first time"
+echo "    (or System Settings → Privacy & Security → Open Anyway)."

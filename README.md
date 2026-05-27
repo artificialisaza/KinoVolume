@@ -120,6 +120,16 @@ If you want the test tools as well:
 python -m pip install -e ".[dev]"
 ```
 
+### macOS: installing a pre-built release
+
+If you received KinoVolume as a DMG or ZIP:
+
+**DMG (recommended)** — double-click the `.dmg` file, then drag `KinoVolume.app` into the `Applications` folder. The first time you open the app, do not double-click it directly. Instead, **right-click** the app and choose **Open**, then click **Open** in the dialog. After this one-time approval, the app opens normally.
+
+**ZIP** — extract the `.zip` file, then move `KinoVolume.app` to your Applications folder. Use the same **right-click → Open** procedure the first time.
+
+> **Why right-click → Open?** KinoVolume is ad-hoc signed (no paid Apple Developer account). macOS Gatekeeper shows an "unidentified developer" warning. Right-click → Open is the correct way to bypass this. Do not run `sudo xattr -cr` — that strips the quarantine but also leaves a broken signature, which can cause other issues.
+
 ### macOS release build and notarization
 
 From the project root, these scripts produce distributable macOS artifacts:
@@ -128,13 +138,18 @@ From the project root, these scripts produce distributable macOS artifacts:
 chmod +x packaging/macos/create_dmg.sh packaging/macos/build_release.sh
 ```
 
-Build unsigned app + DMG:
+Build unsigned app + DMG + code-safe ZIP:
 
 ```bash
 ./packaging/macos/build_release.sh
 ```
 
-Build signed and notarized release (interactive prompts enabled by default):
+The script outputs three artifacts in `dist/`:
+- `KinoVolume.app` — the application bundle (ad-hoc signed)
+- `KinoVolume-vX.X.dmg` — drag-and-drop installer
+- `KinoVolume-vX.X.zip` — code-signature-safe ZIP (uses `ditto`, not plain `zip`)
+
+Build signed and notarized release (requires Apple Developer account, interactive prompts enabled by default):
 
 ```bash
 ./packaging/macos/build_release.sh --notarize
