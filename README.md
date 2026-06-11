@@ -20,12 +20,14 @@ It is designed for media researchers, artists, designers, and students who want 
 
 ## Download
 
-The latest packaged release is **KinoVolume for MacOS v.0.13**.
-
-- [Latest release page](https://github.com/artificialisaza/KinoVolume/releases/tag/0.13)
-- [Download KinoVolume-v0.13.zip](https://github.com/artificialisaza/KinoVolume/releases/download/0.13/KinoVolume-v0.13.zip)
-
-If macOS shows a security warning the first time you open the app, use **right-click → Open**.
+> [!NOTE]
+> **KinoVolume is available for macOS.** Click the link below to go to the latest release and download the ZIP file.
+>
+> | Platform | Download |
+> | --- | --- |
+> | macOS | [⬇ Download latest release](https://github.com/artificialisaza/KinoVolume/releases/latest) |
+>
+> After downloading: extract the ZIP, move `KinoVolume.app` to your Applications folder, then **right-click → Open** the first time (macOS will show a security warning because the app is not from the App Store — this is normal).
 
 ## What it does
 
