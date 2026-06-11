@@ -18,6 +18,15 @@ It is designed for media researchers, artists, designers, and students who want 
 <!-- Suggested hero asset path: docs/images/interface/hero.gif -->
 <!-- Suggested main interface screenshot path: docs/images/interface/main-window.png -->
 
+## Download
+
+The latest packaged release is **KinoVolume for MacOS v.0.13**.
+
+- [Latest release page](https://github.com/artificialisaza/KinoVolume/releases/tag/0.13)
+- [Download KinoVolume-v0.13.zip](https://github.com/artificialisaza/KinoVolume/releases/download/0.13/KinoVolume-v0.13.zip)
+
+If macOS shows a security warning the first time you open the app, use **right-click → Open**.
+
 ## What it does
 
 KinoVolume treats a video as a block of pixels in space and time:
