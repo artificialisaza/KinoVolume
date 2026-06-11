@@ -513,7 +513,19 @@ class MainWindow(QMainWindow):
         # Store last generation result for preview toggling
         self._last_result = result
 
+        # Persist metadata so this output folder can be fully restored later
+        # by "Load Preview" without needing the original video file.
+        # Non-fatal: a warning is printed if serialisation fails.
+        try:
+            from utils.export_metadata import save_export_metadata
+            _out = result.get("output_dir", "")
+            if _out:
+                save_export_metadata(_out, self.state, result)
+        except Exception as _meta_err:
+            print(f"[Warning] Could not save generation metadata: {_meta_err}")
+
         # Auto-hide sidebar and frame scrubber when switching to result preview
+
         self.frame_scrubber.setVisible(False)
         self._set_sidebar_visible(False)
 
@@ -954,7 +966,18 @@ class MainWindow(QMainWindow):
         import numpy as np
         from PIL import Image as PILImage
 
+        # --- Try metadata.json first (full, mode-aware reconstruction) ---
+        meta_path = os.path.join(folder_path, "metadata.json")
+        if os.path.exists(meta_path):
+            try:
+                self._load_preview_from_metadata(folder_path)
+                return
+            except Exception as _meta_err:
+                print(f"[Preview] metadata load failed, falling back to heuristic: {_meta_err}")
+
+        # --- Heuristic fallback ---
         # Check if it's a cuboid output (has face PNGs)
+
         face_names = ["front", "back", "top", "bottom", "left", "right"]
         face_paths = {}
         for name in face_names:
@@ -1002,9 +1025,100 @@ class MainWindow(QMainWindow):
                 self._show_slice_preview(img_path)
                 return
 
+    def _load_preview_from_metadata(self, folder_path):
+        """Reconstruct 2D/3D preview from a saved metadata.json.
+
+        Called from ``_on_preview_loaded`` when a ``metadata.json`` file is
+        found in the selected folder.  Raises on any unrecoverable error so the
+        caller can fall back to the heuristic approach.
+        """
+        from utils.export_metadata import load_export_metadata, resolve_preview_result_paths
+
+        meta = load_export_metadata(folder_path)
+        mode = meta.get("mode", "")
+        preview_result = meta.get("preview_result", {})
+        result = resolve_preview_result_paths(preview_result, folder_path)
+
+        self._last_result = result
+        self.frame_scrubber.setVisible(False)
+        self._set_sidebar_visible(False)
+
+        if self._slice_preview is not None:
+            self._slice_preview.set_output_dir(folder_path)
+        if self._preview_3d is not None:
+            self._preview_3d.set_output_dir(folder_path)
+
+        if mode == "Cuboid" and result.get("fill_mode"):
+            # Cuboid fill: stacked frame-plane volume
+            self._btn_2d.setEnabled(False)
+            self._btn_3d.setVisible(True)
+            self._btn_3d.setEnabled(True)
+            self._btn_3d.setChecked(True)
+            self._show_cuboid_fill_3d(result)
+
+        elif mode == "Cuboid" and "face_paths" in result:
+            # Cuboid void: textured 6-face box
+            self._btn_2d.setEnabled(True)
+            self._btn_3d.setVisible(True)
+            self._btn_3d.setEnabled(True)
+            self._btn_3d.setChecked(True)
+            self.export_controls.set_pdf_enabled(True)
+            self._show_3d_preview(result)
+
+        elif mode == "Cylinder" and "face_paths" in result:
+            self._btn_2d.setEnabled(True)
+            self._btn_3d.setVisible(True)
+            self._btn_3d.setEnabled(True)
+            self._btn_3d.setChecked(True)
+            self.export_controls.set_pdf_enabled(True)
+            self._show_cylinder_3d_preview(result)
+
+        elif mode == "Slice" and result.get("orthogonal"):
+            self._btn_2d.setEnabled(True)
+            self._btn_3d.setVisible(True)
+            self._btn_3d.setEnabled(True)
+            self._btn_3d.setChecked(True)
+            self._show_orthogonal_3d_preview(result)
+
+        elif mode in ("Slice", "Rings") and "image_path" in result:
+            self._btn_2d.setEnabled(True)
+            self._btn_2d.setChecked(True)
+            self._show_slice_preview(result["image_path"])
+
+        elif mode == "Slit-tear" and "image_path" in result:
+            self._btn_2d.setEnabled(True)
+            self._btn_2d.setChecked(True)
+            self._show_slice_preview(result["image_path"])
+            if result.get("rasterized_lines"):
+                self._btn_3d.setVisible(True)
+                self._btn_3d.setEnabled(True)
+
+        elif mode == "Slit-scan" and "image_path" in result:
+            sampling_mode = result.get("sampling_mode", "")
+            self._btn_2d.setEnabled(True)
+            self._btn_3d.setVisible(True)
+            if sampling_mode == "Planar cut (3D)":
+                self._btn_3d.setEnabled(True)
+                self._btn_3d.setChecked(True)
+                self._show_slitscan_3d_from_result(result)
+            else:
+                self._btn_3d.setEnabled(False)
+                self._btn_2d.setChecked(True)
+                self._show_slice_preview(result["image_path"])
+
+        elif "image_path" in result and os.path.exists(result.get("image_path", "")):
+            # Generic fallback for any single-image mode
+            self._btn_2d.setEnabled(True)
+            self._btn_2d.setChecked(True)
+            self._show_slice_preview(result["image_path"])
+
+        else:
+            raise ValueError(f"Cannot restore preview for mode={mode!r}")
+
     # --- Chroma helpers ---
 
     def _on_color_sampled(self, r, g, b):
+
         """Eyedropper picked a color — forward to the cuboid controls."""
         self.cuboid_controls.set_chroma_color(r, g, b)
 
@@ -1307,7 +1421,11 @@ class MainWindow(QMainWindow):
             self.preview_stack.addWidget(self._preview_3d)
 
         vs = self.state.video_source
-        if vs is None:
+        # Fall back to dimensions from the result when no video is loaded
+        # (e.g. when restoring via "Load Preview").
+        frame_w = result.get("frame_width") or (vs.width if vs else None)
+        frame_h = result.get("frame_height") or (vs.height if vs else None)
+        if frame_w is None or frame_h is None:
             return
 
         image_path = result.get("image_path")
@@ -1322,9 +1440,10 @@ class MainWindow(QMainWindow):
 
         self._preview_3d.display_slittear(
             full_img, rasterized, pixel_counts, depth,
-            vs.width, vs.height,
+            frame_w, frame_h,
         )
         self.preview_stack.setCurrentWidget(self._preview_3d)
+
 
     def _show_slitscan_3d_from_result(self, result):
         """Show slitscan 3D preview with textured plane after generation."""
@@ -1337,7 +1456,11 @@ class MainWindow(QMainWindow):
             self.preview_stack.addWidget(self._preview_3d)
 
         vs = self.state.video_source
-        if vs is None:
+        # Fall back to frame dimensions stored in the result dict when no
+        # video is loaded (e.g. when restoring via "Load Preview").
+        frame_w = result.get("frame_width") or (vs.width if vs else None)
+        frame_h = result.get("frame_height") or (vs.height if vs else None)
+        if frame_w is None or frame_h is None:
             return
 
         captures_base = result.get("output_dir", "")
@@ -1358,15 +1481,15 @@ class MainWindow(QMainWindow):
             if oblique_points:
                 self._preview_3d.display_slitscan_oblique_textured(
                     tex_img, oblique_points,
-                    vs.width, vs.height, depth,
-                    initial_frame=self.state.initial_frame,
-                    last_frame=self.state.last_frame,
+                    frame_w, frame_h, depth,
+                    initial_frame=result.get("initial_frame", self.state.initial_frame),
+                    last_frame=result.get("last_frame", self.state.last_frame),
                 )
         elif sampling_mode == "Planar cut (3D)":
             scan_dir = result.get("scan_direction", "L→R")
             self._preview_3d.display_slitscan_planar(
                 tex_img, scan_dir, mask_type,
-                vs.width, vs.height, depth,
+                frame_w, frame_h, depth,
                 mask_left=result.get("mask_left", 0),
                 mask_right=result.get("mask_right", 0),
                 mask_top=result.get("mask_top", 0),
@@ -1374,6 +1497,7 @@ class MainWindow(QMainWindow):
             )
 
         self.preview_stack.setCurrentWidget(self._preview_3d)
+
 
     def _show_slitscan_3d_preview(self, result):
         """Show slitscan oblique 3D preview with void cuboid + cutting plane."""

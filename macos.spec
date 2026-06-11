@@ -59,7 +59,11 @@ app = BUNDLE(
     info_plist={
         'NSHighResolutionCapable': True,
         'NSPrincipalClass': 'NSApplication',
-        'CFBundleShortVersionString': '0.4',
+        'CFBundleShortVersionString': '0.13',
+        'CFBundleVersion': '0.13',
+        'LSMinimumSystemVersion': '11.0',
+        'NSRequiresAquaSystemAppearance': False,
+        'LSApplicationCategoryType': 'public.app-category.graphics-design',
     },
 )
 

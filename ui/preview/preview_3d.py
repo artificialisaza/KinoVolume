@@ -177,13 +177,17 @@ class Preview3D(QWidget):
         bl = QLabel("Blend:")
         blend_layout.addWidget(bl)
         self._blend_combo = QComboBox()
-        self._blend_combo.addItems(["Standard", "Depth fade", "X-ray"])
+        self._blend_combo.addItems(["Standard", "Ghost", "Depth fade", "X-ray"])
         self._blend_combo.setFixedWidth(100)
         self._blend_combo.setToolTip(
-            "Standard — uniform opacity for all frames\n"
+            "Standard — every frame fully visible from any angle\n"
+            "    (correct depth-sorted transparency)\n"
+            "Ghost — overlapping / repeated content fades, letting you\n"
+            "    see through dense regions of the volume\n"
             "Depth fade — near frames opaque, far frames fade out\n"
             "X-ray — additive blending, bright on dark background"
         )
+
         self._blend_combo.currentTextChanged.connect(self._on_blend_changed)
         blend_layout.addWidget(self._blend_combo)
         self._blend_row.setVisible(False)
@@ -286,6 +290,27 @@ class Preview3D(QWidget):
         self._mesh_actors = []
         self._fill_data = None
         self._bg_transparent = False  # track transparent background for captures
+        # Cuboid-fill depth ordering.  The stacked frame planes are translucent
+        # and VTK renders translucent actors in their add-order rather than
+        # depth-sorted, which made the old "Standard" blend composite correctly
+        # only when viewed from the back.  For a true "Standard" we keep the
+        # planes sorted back-to-front relative to the camera so every layer is
+        # visible from any angle.  ``_fill_plane_groups`` holds the per-frame
+        # actor groups in ascending-Z (creation) order; ``_fill_sort_dir`` is
+        # the render order currently applied ("asc" / "desc" / None).
+        self._fill_plane_groups = []
+        self._fill_sort_dir = None
+
+        # Re-sort the fill planes when the camera orbits past the stack so the
+        # back-to-front order stays correct during interaction.  Harmless in
+        # every other preview mode (the callback no-ops when not in fill mode).
+        for _evt in ("InteractionEvent", "EndInteractionEvent"):
+            try:
+                self.plotter.iren.add_observer(_evt, self._on_camera_interaction)
+            except Exception:
+                pass
+
+
 
         # State for re-rendering at different quality levels / full-quality capture
         self._current_max_tex = PREVIEW_TEXTURE_MAX
@@ -537,10 +562,13 @@ class Preview3D(QWidget):
 
         self.plotter.clear()
         self._mesh_actors.clear()
+        self._fill_plane_groups = []
+        self._fill_sort_dir = None
 
         W = float(dimensions["width"])
         H = float(dimensions["height"])
         total = int(dimensions["depth"])
+
 
         # Scale depth so the cuboid has reasonable proportions in 3D.
         # Raw depth = frame count (e.g. 30) while W/H are pixels (e.g. 1920×1080).
@@ -569,8 +597,9 @@ class Preview3D(QWidget):
         self._fill_data = (slices_dir, dimensions)
         self._density_row.setVisible(True)
         self._spacing_row.setVisible(True)
-        self._pad_gaps_row.setVisible(True)
+        self._pad_gaps_row.setVisible(False)  # pad-gaps feature hidden (UI not exposed)
         self._blend_row.setVisible(True)
+
         self._apply_row.setVisible(True)
 
         # Gather sorted frame image paths — only use the expected count
@@ -615,8 +644,10 @@ class Preview3D(QWidget):
             z = D * idx / max(1, len(paths) - 1)
 
             has_alpha = frame_img.ndim == 3 and frame_img.shape[2] == 4
+            group = []  # actor(s) for this single frame plane (for depth sorting)
 
             if pad_gaps and plane_gap > 0:
+
                 # Build a thin 3D box: the frame texture on the front
                 # and back faces fills the gap to the next plane.
                 half_g = plane_gap / 2.0
@@ -644,6 +675,8 @@ class Preview3D(QWidget):
                     front_mesh, texture=texture, smooth_shading=False, opacity=opacity,
                 )
                 self._mesh_actors.append(actor)
+                group.append(actor)
+
 
                 # Back face (z=z_min): inward-facing
                 back_verts = bverts[[0, 3, 2, 1], :]
@@ -654,7 +687,9 @@ class Preview3D(QWidget):
                     back_mesh, texture=texture, smooth_shading=False, opacity=opacity,
                 )
                 self._mesh_actors.append(actor)
+                group.append(actor)
             else:
+
                 verts = np.array([
                     [0, 0, z], [W, 0, z], [W, H, z], [0, H, z],
                 ], dtype=np.float32)
@@ -676,11 +711,42 @@ class Preview3D(QWidget):
                     mesh, texture=texture, smooth_shading=False, opacity=opacity,
                 )
                 self._mesh_actors.append(actor)
+                group.append(actor)
+
+            if group:
+                # Record this frame plane's actor(s) in ascending-Z order so
+                # the renderer can be re-sorted back-to-front for "Standard".
+                self._fill_plane_groups.append(group)
+
+        # Apply the initial actor order WITHOUT querying the camera.  VTK does
+        # not commit the camera position to the active renderer until the first
+        # paint event, so camera.GetPosition() returns the VTK default (0,0,1)
+        # before then.  The default camera set by _reset_camera() always views
+        # the stack from cz − diag*1.2 which is less than focal_z, so
+        # "descending" Z (back→front) is the correct starting order for
+        # Standard blend and we apply it here deterministically.
+        _blend_now = self._blend_combo.currentText()
+        if _blend_now == "Standard" and self._fill_plane_groups:
+            _ren = self.plotter.renderer
+            _ordered = list(reversed(self._fill_plane_groups))
+            for _grp in self._fill_plane_groups:
+                for _act in _grp:
+                    _ren.RemoveActor(_act)
+            for _grp in _ordered:
+                for _act in _grp:
+                    _ren.AddActor(_act)
+            self._fill_sort_dir = "desc"
 
         self._reset_camera()
         self._apply_opacity()
+        # Deferred safety-net: re-check after the first Qt paint (50 ms) so
+        # any camera state that only becomes available on-screen is applied.
+        QTimer.singleShot(50, lambda: self._update_fill_plane_order(render=True))
+
 
     def _on_density_mode_changed(self, text):
+
+
         self._density_spin.setVisible(text == "Every N frames")
 
     def _on_pad_gaps_changed(self, checked):
@@ -840,7 +906,8 @@ class Preview3D(QWidget):
         """Apply current slider opacity to all mesh actors, respecting blend mode."""
         value = self._opacity_slider.value()
         base_opacity = value / 100.0
-        blend = self._blend_combo.currentText() if self._blend_row.isVisible() else "Standard"
+        is_fill = self._blend_row.isVisible()
+        blend = self._blend_combo.currentText() if is_fill else "Standard"
         n = len(self._mesh_actors)
 
         for idx, actor in enumerate(self._mesh_actors):
@@ -853,9 +920,97 @@ class Preview3D(QWidget):
                 # Additive blending: low opacity + additive composite
                 opacity = base_opacity * 0.4
             else:
+                # "Standard" and "Ghost" use identical per-plane opacity; they
+                # differ only in render order (handled in _update_fill_plane_order).
                 opacity = base_opacity
             prop.SetOpacity(max(0.02, opacity))
+
+        # Keep the cuboid-fill planes correctly ordered for the current blend
+        # and camera before presenting the frame.
+        self._update_fill_plane_order(render=False)
         self.plotter.render()
+
+    def _on_camera_interaction(self, *args):
+        """Re-sort the fill planes when the camera orbits past the volume.
+
+        Bound to the interactor's InteractionEvent / EndInteractionEvent.  It is
+        a cheap no-op except on the rare frame where the camera crosses the
+        stack's mid-plane and the back-to-front order actually flips.
+        """
+        self._update_fill_plane_order(render=True)
+
+    def _update_fill_plane_order(self, render=True):
+        """Sort the cuboid-fill frame planes back-to-front for the camera.
+
+        The stacked frame planes are translucent and VTK renders translucent
+        actors in their add-order rather than depth-sorted, which made the old
+        "Standard" blend composite correctly only when viewed from the back.
+        Because the planes are parallel and non-intersecting, sorting them
+        back-to-front relative to the camera yields exact, order-independent
+        compositing — every layer is visible from any angle, and the opacity
+        slider still works correctly.  "Ghost" (and the other blends) keep the
+        original add-order so their order-dependent look is preserved.
+
+        Only the cuboid-fill planes are ever touched; all other preview modes
+        are untouched because the blend row is hidden for them.
+        """
+        if not self._blend_row.isVisible():
+            # Not in cuboid-fill mode; the planes (if any) were already removed
+            # by ``plotter.clear()`` — drop the stale references so we never try
+            # to re-add deleted actors to another scene.
+            self._fill_plane_groups = []
+            self._fill_sort_dir = None
+            return
+
+        groups = self._fill_plane_groups
+        if not groups:
+            return
+
+        if self._blend_combo.currentText() == "Standard":
+            try:
+                cam = self.plotter.camera
+                cam_pos = cam.GetPosition()
+                cam_fp = cam.GetFocalPoint()
+                # Guard against the uninitialised VTK camera (0, 0, 1) → (0, 0, 0)
+                # that is present before the widget receives its first paint event.
+                # If we sort based on that stale position we undo the deterministic
+                # initial sort already applied in display_cuboid_fill.
+                if (abs(cam_pos[0]) < 1e-6 and abs(cam_pos[1]) < 1e-6
+                        and abs(cam_pos[2] - 1.0) < 1e-6
+                        and abs(cam_fp[0]) < 1e-6 and abs(cam_fp[1]) < 1e-6
+                        and abs(cam_fp[2]) < 1e-6):
+                    return  # camera not yet initialised — keep current order
+                view_z = cam_fp[2] - cam_pos[2]
+            except Exception:
+                return
+            # Looking toward +Z → the far plane has the largest Z → draw the
+            # largest-Z planes first (descending).  Otherwise keep ascending.
+            desired = "desc" if view_z > 0 else "asc"
+
+        else:
+            # Ghost / Depth fade / X-ray keep the original creation order.
+            desired = "asc"
+
+        if self._fill_sort_dir == desired:
+            return
+
+        ren = self.plotter.renderer
+        ordered = list(groups) if desired == "asc" else list(reversed(groups))
+        try:
+            for grp in groups:
+                for act in grp:
+                    ren.RemoveActor(act)
+            for grp in ordered:
+                for act in grp:
+                    ren.AddActor(act)
+            self._fill_sort_dir = desired
+            if render:
+                self.plotter.render()
+        except Exception:
+            # Reordering is best-effort; never let it break the preview.
+            pass
+
+
 
     def _downscale(self, img):
         """Downscale image if any dimension exceeds the current quality limit."""
