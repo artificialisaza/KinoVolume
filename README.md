@@ -234,7 +234,10 @@ Shared parameters:
 #### Cuboid Void
 
 ![Cuboid Void: Glimpse of a Garden - 1957 - Marie Menken](docs/images/outputs/cuvoid_void_1.jpg)
+*Cuboid Void spatial projection. "Glimpse of a Garden" (1957) by Marie Menken.*
+
 ![Cuboid Unfold: Glimpse of a Garden - 1957 - Marie Menken](docs/images/outputs/cuboid_unfold.jpg)
+*Printable PDF unfold generated from the Cuboid Void mesh. "Glimpse of a Garden" (1957) by Marie Menken.*
 
 Cuboid Void is the lighter workflow. It samples only the outer border of the chosen rectangle across time, producing six face textures.
 
@@ -254,8 +257,13 @@ Outputs:
 #### Cuboid Fill
 
 ![Cuboid Fill Chroma: STREAMSSECTIONSECTIONSSECTIONED - 1971 - Paul Sharits](docs/images/outputs/cuvoid_chroma.jpg)
+*Cuboid Fill spatial volume extracted using Chroma Key. "STREAMSSECTIONSECTIONSSECTIONED" (1971) by Paul Sharits.*
+
 ![Cuboid Fill Fast AI: Battleship Potemkin (Бронено́сец Потёмкин) - 1925 - Sergey Eisenstein](docs/images/outputs/cuboid_fastAI.jpg)
+*Volumetric figure trails isolated via Fast AI segmentation. "Battleship Potemkin" (Бронено́сец Потёмкин, 1925) by Sergey Eisenstein.*
+
 ![Cuboid Fill Slow AI: The taste of Tea (茶の味) - 2004 - Katsuhito Ishii](docs/images/outputs/cuboid_slowAI.jpg)
+*Dense temporal accumulation obtained through high-precision AI segmentation. "The Taste of Tea" (茶の味, 2004) by Katsuhito Ishii.*
 
 Cuboid Fill preserves the entire masked area for every sampled frame. Instead of saving only the outside faces, it saves a frame stack to disk for volumetric preview. It is very resource intensive, for efficiency make small samples and preview with fewer frames.
 
@@ -316,8 +324,8 @@ Outputs:
 
 ### Rings
 
-![Rings: Battleship Potemkin (Бронено́сец Потёмкин) - 1925 - Sergey Eisenstein](docs/images/outputs/rings.jpg)
 ![Rings: Masculin Féminin - 1966 - Jean-Luc Godard](docs/images/outputs/rings_2.jpg)
+*Radial chronological projection (Rings mode) compressing the temporal duration of "Masculin Féminin" (1966) by Jean-Luc Godard.*
 
 Rings turns the video into a dendrochronology-like image where each frame becomes a ring. The result can read as a compressed chronology, a growth pattern, or a circular archive.
 
@@ -349,8 +357,13 @@ Notes:
 ### Slice
 
 ![Slice Horizontal: Antonio das Mortes (O Dragão da Maldade contra o Santo Guerreiro) - 1969](docs/images/outputs/slice_horizontal.jpg)
+*Horizontal Slice representation mapping horizontal camera and subject motion.*
+
 ![Slice Vertical: Antonio das Mortes (O Dragão da Maldade contra o Santo Guerreiro) - 1969](docs/images/outputs/slice_vertical.jpg)
+*Vertical Slice representation showcasing linear temporal structure through vertical sampling.*
+
 ![Slice Z Orthogonal: Antonio das Mortes (O Dragão da Maldade contra o Santo Guerreiro) - 1969](docs/images/outputs/slice_z_orthogonal.jpg)
+*Orthogonal Z Slice composite mapping planar crosses. Extracted from Glauber Rocha's "Antonio das Mortes (O Dragão da Maldade contra o Santo Guerreiro)" (1969).*
 
 Slice extracts a narrow strip from each frame and concatenates those strips across time. It is useful for studying movement, edits, camera drift, or the temporal behavior of a specific line through the image.
 
@@ -385,7 +398,10 @@ Notes:
 ### Slit-scan
 
 ![Slit-scan Vertical 2: Psychohydrography - 2010 - Peter Bo](docs/images/outputs/slitscan_vertical%202.jpg)
+*Slit-scan (Vertical Sweep) visualizing progressive spatial translation into temporal duration.*
+
 ![Slit-scan Vertical 3: Psychohydrography - 2010 - Peter Bo](docs/images/outputs/slitscan_vertical%203.jpg)
+*Alternate Slit-scan vertical sampling revealing architectural motion. Extracted from Peter Bo Rappmund's "Psychohydrography" (2010).*
 
 Slit-scan samples a spatial-temporal cut plane through the video volume. It supports planar cuts (diagonal sweeping through the cube), all-frames sweeps, and oblique mode with four user-defined control points. In the later two the slit moves progressively through the frame.
 
