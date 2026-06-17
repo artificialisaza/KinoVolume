@@ -210,10 +210,10 @@ If you are unsure where to start, use this table first and then read the detaile
 
 | Mode | Core idea | Main output | Good starting use |
 | --- | --- | --- | --- |
-| Cuboid | Build a rectangular video volume (void surface or filled interior) | Face textures, 3D mesh, PDF unfold, frame stack | fast iteration, surface-based or dense temporal volumes |
-| Cylinder | Sample a circular perimeter through time | Cylinder textures, 3D mesh, PDF unfold | radial imagery and rotational forms |
+| Cuboid | Build a rectangular video volume (void surface or filled interior) | Face textures, 3D mesh, PDF unfold, frame stack | fast iteration (void), surface-based or dense temporal volumes |
+| Cylinder | Sample a circular perimeter through time | Cylinder textures, 3D mesh, PDF unfold | simple printable cylinders |
 | Rings | Turn frames into concentric rings | One radial image | chronology, cycles, long-duration summaries |
-| Slice | Sample one straight strip through time | One 2D image | motion traces, edits, camera drift |
+| Slice | Sample one straight strip through time | One 2D image | motion traces, edits, camera drift, simple analysis |
 | Slit-scan | Sample a spatial-temporal cut plane through the video volume | One 2D image and 3D preview | planar sweeps through the video cube |
 | Slit-tear | Draw custom lines and sample them through time | One 2D image and 3D preview | irregular paths, bodies, and multi-line sampling |
 
@@ -233,6 +233,9 @@ Shared parameters:
 
 #### Cuboid Void
 
+![Cuboid Void: Glimpse of a Garden - 1957 - Marie Menken](docs/images/outputs/cuvoid_void_1.jpg)
+![Cuboid Unfold: Glimpse of a Garden - 1957 - Marie Menken](docs/images/outputs/cuboid_unfold.jpg)
+
 Cuboid Void is the lighter workflow. It samples only the outer border of the chosen rectangle across time, producing six face textures.
 
 Best for:
@@ -250,7 +253,11 @@ Outputs:
 
 #### Cuboid Fill
 
-Cuboid Fill preserves the entire masked area for every sampled frame. Instead of saving only the outside faces, it saves a frame stack to disk for volumetric preview.
+![Cuboid Fill Chroma: STREAMSSECTIONSECTIONSSECTIONED - 1971 - Paul Sharits](docs/images/outputs/cuvoid_chroma.jpg)
+![Cuboid Fill Fast AI: Battleship Potemkin (Бронено́сец Потёмкин) - 1925 - Sergey Eisenstein](docs/images/outputs/cuboid_fastAI.jpg)
+![Cuboid Fill Slow AI: The taste of Tea (茶の味) - 2004 - Katsuhito Ishii](docs/images/outputs/cuboid_slowAI.jpg)
+
+Cuboid Fill preserves the entire masked area for every sampled frame. Instead of saving only the outside faces, it saves a frame stack to disk for volumetric preview. It is very resource intensive, for efficiency make small samples and preview with fewer frames.
 
 Best for:
 
@@ -275,7 +282,7 @@ Extraction methods inside Cuboid Fill:
 | --- | --- | --- |
 | None | No extra extraction parameters | You want the full masked image area as-is |
 | Chroma Key | Color, Tolerance, Fade | You have a keyed background or controlled color field |
-| Edge Detect | Canny Low, Canny High, Close gaps, Min area, Invert mask, Select object | You want a fast, dependency-light way to isolate contours |
+| Edge Detect | Canny Low, Canny High, Close gaps, Min area, Invert mask, Select object | You want a fast, dependency-light way to isolate contours or track subject movement |
 | AI Segment | Model, Confidence, Invert mask, Select object, Download Model | You want higher-quality foreground extraction |
 
 Practical guidance:
@@ -290,9 +297,7 @@ Cylinder samples a circular perimeter in each frame and unwraps it into a textur
 
 Best for:
 
-- orbiting or radial imagery
-- circular motifs
-- outputs that translate well into rotational 3D forms
+- simplest 3D figure to print
 
 Main parameters:
 
@@ -311,12 +316,15 @@ Outputs:
 
 ### Rings
 
+![Rings: Battleship Potemkin (Бронено́сец Потёмкин) - 1925 - Sergey Eisenstein](docs/images/outputs/rings.jpg)
+![Rings: Masculin Féminin - 1966 - Jean-Luc Godard](docs/images/outputs/rings_2.jpg)
+
 Rings turns the video into a dendrochronology-like image where each frame becomes a ring. The result can read as a compressed chronology, a growth pattern, or a circular archive.
 
 Best for:
 
 - cyclical or seasonal structures
-- long-duration summaries
+- long-duration 2D summaries
 - visualizing chronology as radial growth
 
 Main parameters:
@@ -340,13 +348,18 @@ Notes:
 
 ### Slice
 
+![Slice Horizontal: Antonio das Mortes (O Dragão da Maldade contra o Santo Guerreiro) - 1969](docs/images/outputs/slice_horizontal.jpg)
+![Slice Vertical: Antonio das Mortes (O Dragão da Maldade contra o Santo Guerreiro) - 1969](docs/images/outputs/slice_vertical.jpg)
+![Slice Z Orthogonal: Antonio das Mortes (O Dragão da Maldade contra o Santo Guerreiro) - 1969](docs/images/outputs/slice_z_orthogonal.jpg)
+
 Slice extracts a narrow strip from each frame and concatenates those strips across time. It is useful for studying movement, edits, camera drift, or the temporal behavior of a specific line through the image.
 
 Best for:
 
-- classic slit-scan analysis
-- temporal compression into a single image
+- efficient space-time analysis
+- temporal compression into a 2D image (or 3D)
 - comparing motion density across long durations
+- Orthogonal slice the frames in synch with frames helps a lot to undestand what the visual signatures represent.
 
 Main parameters:
 
@@ -371,12 +384,16 @@ Notes:
 
 ### Slit-scan
 
-Slit-scan samples a spatial-temporal cut plane through the video volume. It supports planar cuts (diagonal sweeping through the cube), all-frames sweeps, and oblique mode with four user-defined control points.
+![Slit-scan Vertical 2: Psychohydrography - 2010 - Peter Bo](docs/images/outputs/slitscan_vertical%202.jpg)
+![Slit-scan Vertical 3: Psychohydrography - 2010 - Peter Bo](docs/images/outputs/slitscan_vertical%203.jpg)
+
+Slit-scan samples a spatial-temporal cut plane through the video volume. It supports planar cuts (diagonal sweeping through the cube), all-frames sweeps, and oblique mode with four user-defined control points. In the later two the slit moves progressively through the frame.
 
 Best for:
 
 - planar sweeps through the video cube
 - comparing spatial and temporal structure in one image
+- good for extracting change in a single-shot
 - oblique cuts across (x, y, t) space
 
 Main parameters:
@@ -444,9 +461,9 @@ Current mesh-export coverage in the main workflow:
 - Orthogonal Slice: yes
 - Cylinder: yes
 - Slit-scan planar: yes
-- Cuboid Fill: preview only
-- Slit-tear: preview only
-- Rings: 2D only
+- Cuboid Fill: output is provided but not compatible with extraction
+- Slit-tear: yes
+- Rings: -
 
 ### Printable PDF export
 
