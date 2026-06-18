@@ -5,7 +5,7 @@
 ![License](https://img.shields.io/badge/License-GPLv3-blue.svg)
 ![Status](https://img.shields.io/badge/Status-Research%20Software-2D6A4F)
 
-<img src="resources/icons/Icon-macOS-512x512@2x.png" width="200" align="left" />
+<img src="resources/icons/Icon-macOS-512x512@2x.png" width="160" align="left" />
 
 KinoVolume is a desktop tool for turning video into images, 3D forms, and printable models. Instead of treating video only as playback, it lets you work with it as a spatial-temporal volume where time becomes depth.
 
