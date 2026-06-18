@@ -88,19 +88,16 @@ KinoVolume draws on a body of work exploring video as a spatial and temporal obj
 - **Tang, Anthony, Saul Greenberg, and Sidney Fels** — *Exploring Video Streams Using Slit-Tear Visualizations* (2008). The direct inspiration for the slit-tear mode. [https://doi.org/10.1145/1385569.1385601](https://doi.org/10.1145/1385569.1385601)
 - **Kitasenju Design** — *Structure of Slit-scan* (2022). A clear visual explanation of how slit-scan sampling works geometrically. [https://kitasenjudesign.com/slitscan/structure/](https://kitasenjudesign.com/slitscan/structure/)
 
-## Screenshots and output examples
 
-The repository is already prepared for GitHub images. When you want to add screenshots or generated results, place them under `docs/images/` and replace the notes below with actual image embeds.
+## Interface
 
-### Interface
-
-![Mask selector: In The Mood for Love - 2000 - Wong Kar-Wai](docs/images/interface/mask-window.png)
+![Mask selector: In The Mood for Love - 2000 - Wong Kar-Wai](docs/images/interface/mask-window.jpeg)
 *Mask selector with a frame of the film In The Mood for Love (花樣年華) (2000, Wong Kar-Wai)*
 
-![2D Preview: In The Mood for Love - 2000 - Wong Kar-Wai](docs/images/interface/preview-2d.png)
+![2D Preview: In The Mood for Love - 2000 - Wong Kar-Wai](docs/images/interface/preview-2d.jpeg)
 *2D Preview of a cuboid (void) with visualization from the film In The Mood for Love (花樣年華) (2000, Wong Kar-Wai)*
 
-![3D Preview: In The Mood for Love - 2000 - Wong Kar-Wai](docs/images/interface/preview-3d.png)
+![3D Preview: In The Mood for Love - 2000 - Wong Kar-Wai](docs/images/interface/preview-3d.jpeg)
 *3D Preview of a cuboid (fill) with visualization from the film In The Mood for Love (花樣年華) (2000, Wong Kar-Wai)*
 
 ## Installation
