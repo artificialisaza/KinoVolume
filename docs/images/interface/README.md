@@ -1,9 +1,5 @@
 # Interface Images
 
-Suggested filenames for README usage:
-
-- `hero.gif`
-- `main-window.png`
-- `mask-selection.png`
-- `preview-2d.png`
-- `preview-3d.png`
+- `mask-selection.png` - In The Mood for Love - 2000 - Wong Kar-Wai
+- `preview-2d.png` - In The Mood for Love - 2000 - Wong Kar-Wai
+- `preview-3d.png` - In The Mood for Love - 2000 - Wong Kar-Wai

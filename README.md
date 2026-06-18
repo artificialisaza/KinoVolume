@@ -92,23 +92,14 @@ The repository is already prepared for GitHub images. When you want to add scree
 
 ### Interface
 
-<!-- Add an interface screenshot here -->
-<!-- Suggested file: docs/images/interface/main-window.png -->
+![Mask selector: In The Mood for Love - 2000 - Wong Kar-Wai](docs/images/interface/mask-window.png)
+*Mask selector with a frame of the film In The Mood for Love (花樣年華) (2000, Wong Kar-Wai)*
 
-Suggested image: the main window showing the left sidebar, the frame preview, and the Mask / 2D / 3D preview buttons.
+![2D Preview: In The Mood for Love - 2000 - Wong Kar-Wai](docs/images/interface/preview-2d.png)
+*2D Preview of a cuboid (void) with visualization from the film In The Mood for Love (花樣年華) (2000, Wong Kar-Wai)*
 
-### Output gallery
-
-<!-- Add a gallery of generated results here -->
-<!-- Suggested directory: docs/images/outputs/ -->
-
-Suggested images:
-
-- `docs/images/outputs/slice.png`
-- `docs/images/outputs/cuboid.png`
-- `docs/images/outputs/cylinder.png`
-- `docs/images/outputs/rings.png`
-- `docs/images/outputs/slittear.png`
+![3D Preview: In The Mood for Love - 2000 - Wong Kar-Wai](docs/images/interface/preview-3d.png)
+*3D Preview of a cuboid (fill) with visualization from the film In The Mood for Love (花樣年華) (2000, Wong Kar-Wai)*
 
 ## Installation
 
