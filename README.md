@@ -91,13 +91,13 @@ KinoVolume draws on a body of work exploring video as a spatial and temporal obj
 
 ## Interface
 
-![Mask selector: In The Mood for Love - 2000 - Wong Kar-Wai](docs/images/interface/mask-window.jpeg)
+![Mask selector: In The Mood for Love - 2000 - Wong Kar-Wai](docs/images/interface/mask-window.jpg)
 *Mask selector with a frame of the film In The Mood for Love (花樣年華) (2000, Wong Kar-Wai)*
 
-![2D Preview: In The Mood for Love - 2000 - Wong Kar-Wai](docs/images/interface/preview-2d.jpeg)
+![2D Preview: In The Mood for Love - 2000 - Wong Kar-Wai](docs/images/interface/preview-2d.jpg)
 *2D Preview of a cuboid (void) with visualization from the film In The Mood for Love (花樣年華) (2000, Wong Kar-Wai)*
 
-![3D Preview: In The Mood for Love - 2000 - Wong Kar-Wai](docs/images/interface/preview-3d.jpeg)
+![3D Preview: In The Mood for Love - 2000 - Wong Kar-Wai](docs/images/interface/preview-3d.jpg)
 *3D Preview of a cuboid (fill) with visualization from the film In The Mood for Love (花樣年華) (2000, Wong Kar-Wai)*
 
 ## Installation
