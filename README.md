@@ -23,19 +23,9 @@ It is designed for media researchers, artists, designers, and students who want 
 ## Download
 
 > [!IMPORTANT]
-> **KinoVolume is available for macOS.** Because the app is ad-hoc signed (no paid Apple Developer account), browsers add a quarantine flag that causes "damaged" or "malicious software" errors. **Use the terminal install command below** — it downloads via `curl` which avoids quarantine entirely.
+> **KinoVolume is available for macOS.** Because the app is ad-hoc signed, browsers add a quarantine flag that causes "damaged" or "malicious software" errors. **Use the terminal install command below** — it downloads via `curl` which avoids quarantine entirely.
 >
-> ### Option A — Terminal install (recommended)
->
-> Open **Terminal** (Spotlight → "Terminal") and paste:
->
-> ```bash
-> curl -fsSL https://raw.githubusercontent.com/artificialisaza/KinoVolume/main/install.sh | bash
-> ```
->
-> This downloads and installs KinoVolume to `/Applications` automatically. You will be prompted for your admin password. No "damaged" or "malicious software" warnings.
->
-> ### Option B — Manual download
+> ### Manual download
 >
 > | Platform | Download |
 > | --- | --- |
@@ -44,13 +34,13 @@ It is designed for media researchers, artists, designers, and students who want 
 > If you download via browser, you **must** strip the quarantine flag before opening:
 >
 > ```bash
-> xattr -cr /path/to/KinoVolume.app
+> sudo xattr -cr /path/to/KinoVolume.app
 > ```
 >
 > Or if already moved to Applications:
 >
 > ```bash
-> xattr -cr /Applications/KinoVolume.app
+> sudo xattr -cr /Applications/KinoVolume.app
 > ```
 
 ## What it does
