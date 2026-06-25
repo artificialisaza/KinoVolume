@@ -189,7 +189,11 @@ DMG-only packaging (no rebuild):
 
 ## Quick start
 
-[![KinoVolume – Quick Start](https://vumbnail.com/1204675712.jpg)](https://vimeo.com/1204675712)
+<div align="center">
+  <a href="https://vimeo.com/1204675712">
+    <img src="https://i.vimeocdn.com/video/2173072810-95418661f49fbc7b494afd62633a7fa84d7ab8ee8898d5d33ff43029d6d87f0d-d_1280" alt="KinoVolume – Quick Start" width="720" />
+  </a>
+</div>
 
 1. Click **Open Video** and choose a source clip.
 2. Use the frame scrubber to choose the frame range you want to process.
