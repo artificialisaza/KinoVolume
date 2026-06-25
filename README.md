@@ -23,10 +23,12 @@ It is designed for media researchers, artists, designers, and students who want 
 ## Download
 
 > [!IMPORTANT]
-> **KinoVolume is available for macOS.** Because the app is ad-hoc signed, browsers add a quarantine flag that causes "damaged" or "malicious software" errors. **Use the terminal install command below** — it downloads via `curl` which avoids quarantine entirely.
+> **KinoVolume is available for macOS.** Because the app is ad-hoc signed, browsers add a quarantine flag that causes "damaged" or "malicious software" errors.
 >
 > ### Manual download
 >
+> Download the file, unzip, and place the KinoVolume.app in you Applications folder.
+> 
 > | Platform | Download |
 > | --- | --- |
 > | macOS | [⬇ Download latest release](https://github.com/artificialisaza/KinoVolume/releases/latest) |
