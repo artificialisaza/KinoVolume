@@ -1312,7 +1312,18 @@ class MainWindow(QMainWindow):
         v_img = np.array(PILImage.open(result["vertical_path"]))
         h_img = np.array(PILImage.open(result["horizontal_path"]))
 
+        # The two slices are stored with different time axes: the vertical slice
+        # has time on its horizontal axis (columns = time), while the horizontal
+        # slice has time on its vertical axis (rows = time).  That makes the
+        # horizontal slice appear 90°-rotated relative to the vertical one.
+        # Rotate ONLY the horizontal slice 90° counter-clockwise so both share
+        # the same orientation (time runs left→right) in the 2D preview.
+        # Preview only — the exported slice images on disk are left untouched.
+        h_img = np.rot90(h_img, k=1)
+
         # Stack vertically with a small gap
+
+
         gap = 4
         max_w = max(v_img.shape[1], h_img.shape[1])
         total_h = v_img.shape[0] + gap + h_img.shape[0]

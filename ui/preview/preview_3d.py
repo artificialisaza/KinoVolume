@@ -86,7 +86,19 @@ class Preview3D(QWidget):
             ren.SetUseFXAA(True)
         except Exception:
             pass
+
+        # Anti-aliasing / transparency interaction.
+        # SSAA (enabled above) is a *custom render pass* that bypasses VTK's
+        # depth peeling.  The "Standard" blend needs depth peeling to composite
+        # translucent layers correctly from any angle (true order-independent
+        # transparency), so whenever a *translucent* Standard scene is shown we
+        # temporarily swap SSAA for FXAA + depth peeling (see _set_render_mode).
+        # Opaque scenes and the order-dependent blends keep the crisper SSAA.
+        self._max_peels = 8
+        self._depth_peeling_active = False
+
         layout.addWidget(self.plotter.interactor)
+
 
         # --- Floating preview toolbar (top-right) ---
         self._toolbar = PreviewToolbar(self)
@@ -177,16 +189,24 @@ class Preview3D(QWidget):
         bl = QLabel("Blend:")
         blend_layout.addWidget(bl)
         self._blend_combo = QComboBox()
-        self._blend_combo.addItems(["Standard", "Ghost", "Depth fade", "X-ray"])
-        self._blend_combo.setFixedWidth(100)
+        self._blend_combo.addItems([
+            "Standard",
+            "Ghost (front)", "Ghost (far)",
+            "Depth fade (front)", "Depth fade (far)",
+            "X-ray (front)", "X-ray (far)",
+        ])
+        self._blend_combo.setFixedWidth(150)
         self._blend_combo.setToolTip(
-            "Standard — every frame fully visible from any angle\n"
-            "    (correct depth-sorted transparency)\n"
-            "Ghost — overlapping / repeated content fades, letting you\n"
-            "    see through dense regions of the volume\n"
-            "Depth fade — near frames opaque, far frames fade out\n"
-            "X-ray — additive blending, bright on dark background"
+            "Standard — true depth-sorted transparency; every layer is\n"
+            "    composited correctly from any viewing angle (default).\n"
+            "\n"
+            "The variants below are order-dependent looks.  '(front)' makes\n"
+            "the near side see-through; '(far)' makes the far side see-through:\n"
+            "Ghost — uniform transparency through the whole volume\n"
+            "Depth fade — one side stays opaque, the other fades out\n"
+            "X-ray — faint, additive-looking layers on a dark background"
         )
+
 
         self._blend_combo.currentTextChanged.connect(self._on_blend_changed)
         blend_layout.addWidget(self._blend_combo)
@@ -902,33 +922,107 @@ class Preview3D(QWidget):
         """Re-apply opacity with the new blend mode."""
         self._apply_opacity()
 
+    @staticmethod
+    def _parse_blend(text):
+        """Split a blend label into ``(style, direction)``.
+
+        ``style`` ∈ {"Standard", "Ghost", "Depth fade", "X-ray"};
+        ``direction`` ∈ {"front", "far", None} (None only for "Standard").
+        """
+        if text == "Standard":
+            return "Standard", None
+        direction = "front" if text.endswith("(front)") else "far"
+        for style in ("Ghost", "Depth fade", "X-ray"):
+            if text.startswith(style):
+                return style, direction
+        return "Standard", None
+
+    def _set_render_mode(self, translucent_standard):
+        """Switch the renderer between SSAA and depth-peeling + FXAA.
+
+        In this VTK build SSAA is a *custom render pass* that bypasses the
+        renderer's depth peeling, so the two are mutually exclusive.  The
+        "Standard" blend needs depth peeling for correct order-independent
+        transparency from any angle, but only when the scene is actually
+        translucent — an opaque scene is depth-tested correctly and keeps the
+        crisper SSAA pass.  The order-dependent blends never use depth peeling
+        (they rely on actor add-order on purpose).  We only flip the path when
+        it actually changes, to avoid rebuilding render passes every frame.
+        """
+        want_peeling = bool(translucent_standard)
+        if want_peeling == self._depth_peeling_active:
+            return
+        try:
+            ren = self.plotter.renderer
+            if want_peeling:
+                # Dropping the SSAA pass also clears FXAA, so re-enable FXAA as
+                # a light-weight edge smoother once depth peeling is on.
+                try:
+                    self.plotter.disable_anti_aliasing()
+                except Exception:
+                    pass
+                ren.SetUseDepthPeeling(True)
+                ren.SetMaximumNumberOfPeels(self._max_peels)
+                ren.SetOcclusionRatio(0.0)
+                ren.SetUseFXAA(True)
+            else:
+                # Back to the crisp SSAA pass for opaque / order-dependent views.
+                ren.SetUseDepthPeeling(False)
+                try:
+                    self.plotter.enable_anti_aliasing("ssaa")
+                except Exception:
+                    pass
+                ren.SetUseFXAA(True)
+            ren.Modified()
+            self._depth_peeling_active = want_peeling
+        except Exception:
+            pass
+
     def _apply_opacity(self):
         """Apply current slider opacity to all mesh actors, respecting blend mode."""
         value = self._opacity_slider.value()
         base_opacity = value / 100.0
         is_fill = self._blend_row.isVisible()
         blend = self._blend_combo.currentText() if is_fill else "Standard"
+        style, direction = self._parse_blend(blend)
         n = len(self._mesh_actors)
 
+        min_opacity = 1.0
         for idx, actor in enumerate(self._mesh_actors):
             prop = actor.GetProperty()
-            if blend == "Depth fade" and n > 1:
-                # Near planes (low idx) get full opacity, far planes fade out
-                t = idx / (n - 1)  # 0.0 = nearest, 1.0 = farthest
+            if style == "Depth fade" and n > 1:
+                # Gradient fade across the stack.  t = 0 at the near (front,
+                # z=0) plane, 1 at the far plane.  "(front)" keeps the near
+                # side opaque and fades the far side; "(far)" is the reverse.
+                t = idx / (n - 1)
+                if direction == "far":
+                    t = 1.0 - t
                 opacity = base_opacity * (1.0 - 0.85 * t)
-            elif blend == "X-ray":
-                # Additive blending: low opacity + additive composite
+            elif style == "X-ray":
+                # Faint layers; front/far only changes the render order
+                # (handled in _update_fill_plane_order).
                 opacity = base_opacity * 0.4
             else:
-                # "Standard" and "Ghost" use identical per-plane opacity; they
-                # differ only in render order (handled in _update_fill_plane_order).
+                # Standard and Ghost use uniform per-plane opacity.
                 opacity = base_opacity
-            prop.SetOpacity(max(0.02, opacity))
+            opacity = max(0.02, opacity)
+            prop.SetOpacity(opacity)
+            min_opacity = min(min_opacity, opacity)
+
+        # Choose the render path.  "Standard" must show correct, order-
+        # independent transparency from any angle, which needs depth peeling —
+        # but only when the scene is actually translucent.  This is what makes
+        # the *other* 3D modes (cylinder, slice/orthogonal, slit-scan, slit-
+        # tear) — which always use "Standard" — composite correctly once the
+        # opacity slider is lowered, while opaque scenes keep crisp SSAA.
+        translucent_standard = (style == "Standard" and min_opacity < 0.999)
+        self._set_render_mode(translucent_standard)
 
         # Keep the cuboid-fill planes correctly ordered for the current blend
         # and camera before presenting the frame.
         self._update_fill_plane_order(render=False)
         self.plotter.render()
+
 
     def _on_camera_interaction(self, *args):
         """Re-sort the fill planes when the camera orbits past the volume.
@@ -966,7 +1060,12 @@ class Preview3D(QWidget):
         if not groups:
             return
 
-        if self._blend_combo.currentText() == "Standard":
+        blend_now = self._blend_combo.currentText()
+        if blend_now == "Standard":
+            # Depth peeling (see _set_render_mode) already composites Standard
+            # correctly regardless of actor order.  This camera-aware back-to-
+            # front sort is a harmless fallback for the rare case where depth
+            # peeling is unavailable.
             try:
                 cam = self.plotter.camera
                 cam_pos = cam.GetPosition()
@@ -986,10 +1085,15 @@ class Preview3D(QWidget):
             # Looking toward +Z → the far plane has the largest Z → draw the
             # largest-Z planes first (descending).  Otherwise keep ascending.
             desired = "desc" if view_z > 0 else "asc"
-
+        elif blend_now.endswith("(front)"):
+            # "(front)" variants draw the near (front, z=0) planes last so the
+            # front side of the volume reads see-through.
+            desired = "desc"
         else:
-            # Ghost / Depth fade / X-ray keep the original creation order.
+            # "(far)" variants draw the far planes last so the far side reads
+            # see-through (the original creation/add-order look).
             desired = "asc"
+
 
         if self._fill_sort_dir == desired:
             return
@@ -1337,9 +1441,16 @@ class Preview3D(QWidget):
         ], dtype=np.float32)
         h_mesh = pv.PolyData(h_verts, h_faces)
         h_mesh.active_texture_coordinates = h_uvs
-        h_tex = pv.numpy_to_texture(self._downscale(h_image))
+        # The horizontal plane is an XZ-plane face.  The default camera set in
+        # _reset_camera() has a negative-X right-vector, so XZ faces appear
+        # horizontally mirrored on screen.  Mirror the texture on X to undo
+        # this — the same correction already applied to the display frames
+        # (np.fliplr below) and to "Horizontal" masks in display_slitscan_planar.
+        # The vertical plane is a YZ face (no X extent) and needs no flip.
+        h_tex = pv.numpy_to_texture(self._downscale(np.fliplr(h_image)))
         actor = self.plotter.add_mesh(h_mesh, texture=h_tex, smooth_shading=False)
         self._mesh_actors.append(actor)
+
 
         # — Display frames as semi-transparent textured planes —
         if display_frames:

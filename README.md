@@ -22,14 +22,36 @@ It is designed for media researchers, artists, designers, and students who want 
 
 ## Download
 
-> [!NOTE]
-> **KinoVolume is available for macOS.** Click the link below to go to the latest release and download the ZIP file.
+> [!IMPORTANT]
+> **KinoVolume is available for macOS.** Because the app is ad-hoc signed (no paid Apple Developer account), browsers add a quarantine flag that causes "damaged" or "malicious software" errors. **Use the terminal install command below** — it downloads via `curl` which avoids quarantine entirely.
+>
+> ### Option A — Terminal install (recommended)
+>
+> Open **Terminal** (Spotlight → "Terminal") and paste:
+>
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/artificialisaza/KinoVolume/main/install.sh | bash
+> ```
+>
+> This downloads and installs KinoVolume to `/Applications` automatically. You will be prompted for your admin password. No "damaged" or "malicious software" warnings.
+>
+> ### Option B — Manual download
 >
 > | Platform | Download |
 > | --- | --- |
 > | macOS | [⬇ Download latest release](https://github.com/artificialisaza/KinoVolume/releases/latest) |
 >
-> After downloading: extract the ZIP, move `KinoVolume.app` to your Applications folder, then **right-click → Open** the first time (macOS will show a security warning because the app is not from the App Store — this is normal).
+> If you download via browser, you **must** strip the quarantine flag before opening:
+>
+> ```bash
+> xattr -cr /path/to/KinoVolume.app
+> ```
+>
+> Or if already moved to Applications:
+>
+> ```bash
+> xattr -cr /Applications/KinoVolume.app
+> ```
 
 ## What it does
 
@@ -134,13 +156,19 @@ python -m pip install -e ".[dev]"
 
 ### macOS: installing a pre-built release
 
-If you received KinoVolume as a DMG or ZIP:
+The **recommended** method is the terminal install command shown in the [Download](#download) section above. It avoids all quarantine issues.
 
-**DMG (recommended)** — double-click the `.dmg` file, then drag `KinoVolume.app` into the `Applications` folder. The first time you open the app, do not double-click it directly. Instead, **right-click** the app and choose **Open**, then click **Open** in the dialog. After this one-time approval, the app opens normally.
+If you downloaded a DMG or ZIP via a browser instead:
 
-**ZIP** — extract the `.zip` file, then move `KinoVolume.app` to your Applications folder. Use the same **right-click → Open** procedure the first time.
+**DMG** — double-click the `.dmg` file, drag `KinoVolume.app` into `Applications`, then strip quarantine:
 
-> **Why right-click → Open?** KinoVolume is ad-hoc signed (no paid Apple Developer account). macOS Gatekeeper shows an "unidentified developer" warning. Right-click → Open is the correct way to bypass this. Do not run `sudo xattr -cr` — that strips the quarantine but also leaves a broken signature, which can cause other issues.
+```bash
+xattr -cr /Applications/KinoVolume.app
+```
+
+**ZIP** — extract the `.zip` file, move `KinoVolume.app` to `Applications`, then run the same `xattr -cr` command above.
+
+> **Why is this needed?** KinoVolume is ad-hoc signed (no paid Apple Developer account). When you download via a browser, macOS adds a `com.apple.quarantine` extended attribute that Gatekeeper rejects for ad-hoc signatures, showing "damaged, move to Trash" or "malicious software." The terminal install method (`curl | bash`) avoids this entirely because `curl` does not add quarantine. If you already downloaded via browser, `xattr -cr` removes the quarantine flag so the app can run.
 
 ### macOS build
 

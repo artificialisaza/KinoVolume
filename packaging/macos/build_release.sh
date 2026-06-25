@@ -25,6 +25,11 @@ Options:
 - --zip        Create a distribution ZIP that preserves code signatures
                Uses ditto instead of zip so signatures survive unzipping
                Output: dist/KinoVolume-vX.Y.zip
+- --pkg        Create a PKG installer (RECOMMENDED for web distribution).
+               The PKG installs to /Applications and runs a postinstall
+               script that strips quarantine attributes, preventing the
+               "damaged, move to Trash" error on macOS 26.
+               Output: dist/KinoVolume-vX.Y.pkg
 
 Environment variables:
 - PYTHON_BIN
@@ -245,6 +250,7 @@ NOTARIZE_RELEASE=0
 STAPLE_APP=0
 NO_PROMPT=0
 CREATE_ZIP=0
+CREATE_PKG=0
 
 POSITIONAL_ARGS=()
 while [[ $# -gt 0 ]]; do
@@ -268,6 +274,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --zip)
       CREATE_ZIP=1
+      shift
+      ;;
+    --pkg)
+      CREATE_PKG=1
       shift
       ;;
     -h|--help)
@@ -447,6 +457,22 @@ if [[ "$CREATE_ZIP" -eq 1 ]]; then
   echo "  but can be opened via right-click → Open."
 fi
 
+# ---------------------------------------------------------------------------
+# Create a PKG installer (recommended for web distribution)
+# ---------------------------------------------------------------------------
+# On macOS 26 (Tahoe), ad-hoc signed apps downloaded from the web show
+# "damaged, move to Trash" because the browser applies a quarantine
+# extended attribute. A PKG installer solves this because:
+# 1. Installer.app copies files WITHOUT propagating quarantine
+# 2. The postinstall script strips any residual quarantine xattr
+# 3. The PKG itself only shows "unidentified developer" (bypassable)
+# ---------------------------------------------------------------------------
+if [[ "$CREATE_PKG" -eq 1 ]]; then
+  echo ""
+  echo "=== Creating PKG installer ==="
+  "$PROJECT_ROOT/packaging/macos/create_pkg.sh" "$APP_PATH_ABS"
+fi
+
 if [[ "$NOTARIZE_RELEASE" -eq 1 ]]; then
   if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
     echo "Notary profile '$NOTARY_PROFILE' not found or unavailable."
@@ -482,6 +508,10 @@ echo "DMG:  $DMG_PATH_ABS"
 if [[ "$CREATE_ZIP" -eq 1 ]]; then
   echo "ZIP:  ${ZIP_OUT:-not created}"
 fi
+if [[ "$CREATE_PKG" -eq 1 ]]; then
+  PKG_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH_ABS/Contents/Info.plist" 2>/dev/null || echo "0.0")"
+  echo "PKG:  $PROJECT_ROOT/dist/KinoVolume-v${PKG_VERSION}.pkg"
+fi
 echo ""
 if [[ "$SIGN_RELEASE" -eq 0 ]]; then
   echo "Distribution notes (ad-hoc signed):"
@@ -493,7 +523,13 @@ if [[ "$SIGN_RELEASE" -eq 0 ]]; then
   fi
   echo "  • Do NOT zip the .app with Finder 'Compress' or regular zip —"
   echo "    that strips code signatures and causes 'damaged' errors."
+  if [[ "$CREATE_PKG" -eq 1 ]]; then
+    echo "  • PKG: ★ RECOMMENDED for web distribution. Users download the"
+    echo "         .pkg, double-click to install (admin password required)."
+    echo "         The postinstall script strips quarantine automatically."
+    echo "         No 'damaged' error, no Terminal needed."
+  fi
   echo "  • The 'sudo xattr -cr /path/to/KinoVolume.app' workaround"
-  echo "    should no longer be necessary with this build."
+  echo "    should no longer be necessary with the PKG installer."
 fi
 echo "══════════════════════════════════════════════════════════════"
