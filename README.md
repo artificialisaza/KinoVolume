@@ -189,6 +189,8 @@ DMG-only packaging (no rebuild):
 
 ## Quick start
 
+[![KinoVolume – Quick Start](https://vumbnail.com/1204675712.jpg)](https://vimeo.com/1204675712)
+
 1. Click **Open Video** and choose a source clip.
 2. Use the frame scrubber to choose the frame range you want to process.
 3. Adjust the sampling rate to skip frames when you want a lighter, faster run.
@@ -373,7 +375,7 @@ Notes:
 *Vertical Slice representation showcasing linear temporal structure through vertical sampling.*
 
 ![Slice Z Orthogonal: Antonio das Mortes (O Dragão da Maldade contra o Santo Guerreiro) - 1969](docs/images/outputs/slice_z_orthogonal.jpg)
-*Orthogonal Z Slice composite mapping planar crosses. Extracted from Glauber Rocha's "Antonio das Mortes (O Dragão da Maldade contra o Santo Guerreiro)" (1969).*
+*Orthogonal Z Slice composite mapping planar crosses. Extracted from Glauber Rocha's "Antonio das Mortes (O Dragão da Maldade contra o Santos Guerreiro)" (1969).*
 
 Slice extracts a narrow strip from each frame and concatenates those strips across time. It is useful for studying movement, edits, camera drift, or the temporal behavior of a specific line through the image.
 
