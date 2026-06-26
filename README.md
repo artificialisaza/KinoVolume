@@ -317,6 +317,12 @@ Practical guidance:
 
 ### Cylinder
 
+![cylinder.jpg - Elegia - 1965 - Zoltán Huszárik](docs/images/outputs/cylinder.jpg)
+*Cylinder made from "Elegia" (Zoltán Huszárik, 1965).*
+
+![cylinder_unfold.jpg - Elegia - 1965 - Zoltán Huszárik](docs/images/outputs/cylinder_unfold.jpg)
+*Printable cylinder made from "Elegia" (Zoltán Huszárik, 1965).*
+
 Cylinder samples a circular perimeter in each frame and unwraps it into a textured cylindrical surface. The first and last sampled frames become the front and back caps.
 
 Best for:
