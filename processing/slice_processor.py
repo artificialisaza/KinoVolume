@@ -18,7 +18,7 @@ class SliceProcessor(BaseProcessor):
     def run(self):
         try:
             s = self._state
-            vs = s.video_source
+            vs = self._video
 
             initial = s.initial_frame
             last = s.last_frame
@@ -35,6 +35,8 @@ class SliceProcessor(BaseProcessor):
 
         except Exception as e:
             self.error.emit(str(e))
+        finally:
+            self.cleanup()
 
     # ------------------------------------------------------------------
     # helpers

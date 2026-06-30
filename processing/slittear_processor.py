@@ -26,7 +26,7 @@ class SlitTearProcessor(BaseProcessor):
     def run(self):
         try:
             s = self._state
-            vs = s.video_source
+            vs = self._video
             fw, fh = vs.width, vs.height
 
             lines = s.slittear_lines  # list of polylines [(x,y), ...]
@@ -120,25 +120,38 @@ class SlitTearProcessor(BaseProcessor):
                 self.error.emit("No frames were processed.")
                 return
 
-            # Assemble final image from saved strips
-            result = np.zeros((total_height, count, 3), dtype=np.uint8)
-            for i in range(count):
-                result[:, i] = np.load(
-                    os.path.join(strips_dir, f"s_{i:06d}.npy")
+            # Assemble final image from saved strips using a memory-mapped
+            # array so that very large frame counts don't require holding
+            # the entire output in RAM simultaneously.
+            import tempfile
+            tmp_fd, tmp_result_path = tempfile.mkstemp(
+                dir=self._output_dir, suffix=".dat"
+            )
+            os.close(tmp_fd)
+            try:
+                result = np.memmap(
+                    tmp_result_path, dtype=np.uint8, mode="w+",
+                    shape=(total_height, count, 3),
                 )
+                for i in range(count):
+                    result[:, i] = np.load(
+                        os.path.join(strips_dir, f"s_{i:06d}.npy")
+                    )
 
-            # Save 2D image
-            fmt = s.image_format
-            ext = "tiff" if fmt == "tiff" else "png"
-            out_path = os.path.join(self._output_dir, f"slittear.{ext}")
-            img = Image.fromarray(result)
-            if fmt == "tiff":
-                img.save(out_path, compression="tiff_lzw")
-            else:
-                img.save(out_path)
+                # Save 2D image
+                fmt = s.image_format
+                ext = "tiff" if fmt == "tiff" else "png"
+                out_path = os.path.join(self._output_dir, f"slittear.{ext}")
+                img = Image.fromarray(result)
+                if fmt == "tiff":
+                    img.save(out_path, compression="tiff_lzw")
+                else:
+                    img.save(out_path)
 
-            # Clean up temp strips
-            shutil.rmtree(strips_dir, ignore_errors=True)
+                del result
+            finally:
+                if os.path.exists(tmp_result_path):
+                    os.remove(tmp_result_path)
 
             self.finished.emit({
                 "output_dir": self._output_dir,
@@ -154,6 +167,11 @@ class SlitTearProcessor(BaseProcessor):
 
         except Exception as e:
             self.error.emit(str(e))
+        finally:
+            # Clean up temp strips on all paths (success, error, cancel)
+            if 'strips_dir' in dir() and os.path.exists(strips_dir):
+                shutil.rmtree(strips_dir, ignore_errors=True)
+            self.cleanup()
 
     # ── helpers ───────────────────────────────────────────────────
 

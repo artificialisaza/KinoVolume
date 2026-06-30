@@ -1,5 +1,6 @@
 """Interactive 3D preview using PyVistaQt for cuboid visualization."""
 
+import logging
 import os
 
 import numpy as np
@@ -16,6 +17,8 @@ from PySide6.QtWidgets import (
 
 from config import PREVIEW_TEXTURE_MAX
 from ui.widgets.preview_toolbar import PreviewToolbar
+
+logger = logging.getLogger(__name__)
 
 # Preview quality presets: label → max texture dimension (0 = unlimited)
 _QUALITY_PRESETS = {
@@ -99,6 +102,27 @@ class Preview3D(QWidget):
 
         layout.addWidget(self.plotter.interactor)
 
+        # Verify hardware-accelerated rendering is active.  If VTK falls back
+        # to software rendering (Mesa/OSMesa), the 3D preview will be very slow
+        # — especially for cuboid fill with many textured planes.  Log a warning
+        # so the user knows to check their OpenGL setup.
+        try:
+            ren_win = self.plotter.render_window
+            if hasattr(ren_win, 'GetReport'):
+                report = ren_win.GetReport()
+                if report and ("Software" in report or "Mesa" in report
+                               or "llvmpipe" in report):
+                    logger.warning(
+                        "VTK appears to be using software rendering: %s. "
+                        "3D preview performance will be degraded. "
+                        "Ensure your system has hardware OpenGL drivers.",
+                        report.strip()[:200],
+                    )
+                else:
+                    logger.info("VTK render window report: %s",
+                                report.strip()[:200] if report else "N/A")
+        except Exception:
+            pass
 
         # --- Floating preview toolbar (top-right) ---
         self._toolbar = PreviewToolbar(self)

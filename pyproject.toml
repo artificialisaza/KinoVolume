@@ -20,6 +20,10 @@ dev = [
     "pytest>=7.0",
 ]
 
+[tool.setuptools.packages.find]
+include = ["ui*", "models*", "processing*", "export*", "utils*", "tests*"]
+exclude = ["packaging*", "resources*", "testing_vid*", "docs*"]
+
 [build-system]
 requires = ["setuptools>=68.0"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"

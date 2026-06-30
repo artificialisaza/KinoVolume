@@ -63,7 +63,7 @@ class RingsProcessor(BaseProcessor):
     def run(self):
         try:
             s = self._state
-            vs = s.video_source
+            vs = self._video
             fw, fh = vs.width, vs.height
 
             cx = s.rings_center_x
@@ -271,3 +271,5 @@ class RingsProcessor(BaseProcessor):
 
         except Exception as e:
             self.error.emit(str(e))
+        finally:
+            self.cleanup()

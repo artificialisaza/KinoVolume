@@ -25,7 +25,7 @@ class CuboidFillProcessor(BaseProcessor):
     def run(self):
         try:
             s = self._state
-            vs = s.video_source
+            vs = self._video
             fw, fh = vs.width, vs.height
             l, r = s.cuboid_border_left, s.cuboid_border_right
             t, b = s.cuboid_border_top, s.cuboid_border_bottom
@@ -134,3 +134,5 @@ class CuboidFillProcessor(BaseProcessor):
 
         except Exception as e:
             self.error.emit(str(e))
+        finally:
+            self.cleanup()

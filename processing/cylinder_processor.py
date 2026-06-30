@@ -20,7 +20,7 @@ class CylinderProcessor(BaseProcessor):
     def run(self):
         try:
             s = self._state
-            vs = s.video_source
+            vs = self._video
             fw, fh = vs.width, vs.height
 
             cx = s.cylinder_center_x
@@ -127,6 +127,8 @@ class CylinderProcessor(BaseProcessor):
 
         except Exception as e:
             self.error.emit(str(e))
+        finally:
+            self.cleanup()
 
     @staticmethod
     def _extract_circular_cap(frame, cx, cy, radius, fw, fh):

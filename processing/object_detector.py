@@ -222,16 +222,41 @@ def _get_onnx_session(model_name: str = "u2netp"):
         )
 
     providers = ort.get_available_providers()
-    # Prefer GPU providers when available
+    logger.info("Available ONNX Runtime providers: %s", providers)
+
+    # Prefer GPU / accelerator providers when available.
+    # The order matters: the first available provider in this list is used.
+    # On Apple Silicon, CoreMLExecutionProvider routes inference through the
+    # Apple Neural Engine (ANE) or GPU — but it is only present when
+    # ``onnxruntime-silicon`` is installed instead of the standard
+    # ``onnxruntime`` pip package.
     preferred = []
-    for p in ["CUDAExecutionProvider", "CoreMLExecutionProvider", "DmlExecutionProvider"]:
+    for p in [
+        "CoreMLExecutionProvider",        # Apple Silicon (ANE/GPU)
+        "MetalPerformanceShadersExecutionProvider",  # Apple GPU (Metal)
+        "CUDAExecutionProvider",          # NVIDIA CUDA
+        "DmlExecutionProvider",           # Windows DirectML
+    ]:
         if p in providers:
             preferred.append(p)
     preferred.append("CPUExecutionProvider")
 
-    logger.info("Loading ONNX model %s with providers %s", model_name, preferred)
+    logger.info("Loading ONNX model %s with preferred providers %s", model_name, preferred)
     _onnx_session = ort.InferenceSession(str(path), providers=preferred)
     _onnx_model_name = model_name
+
+    # Log which provider the session actually ended up using so the user
+    # can verify GPU acceleration is active.
+    actual_providers = _onnx_session.get_providers()
+    if any(p != "CPUExecutionProvider" for p in actual_providers):
+        logger.info("ONNX session active providers (GPU-accelerated): %s", actual_providers)
+    else:
+        logger.warning(
+            "ONNX session is using CPUExecutionProvider only. "
+            "For GPU acceleration on Apple Silicon, install onnxruntime-silicon: "
+            "pip install onnxruntime-silicon"
+        )
+
     return _onnx_session
 
 

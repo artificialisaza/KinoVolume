@@ -1,3 +1,4 @@
+import threading
 from collections.abc import Generator
 
 import cv2
@@ -5,13 +6,26 @@ import numpy as np
 
 
 class VideoSource:
-    """Wraps cv2.VideoCapture for frame access and metadata."""
+    """Wraps cv2.VideoCapture for frame access and metadata.
+
+    ``cv2.VideoCapture`` is **not thread-safe**.  If the main UI thread and a
+    processor QThread both call methods on the same ``VideoCapture`` instance,
+    concurrent seek + read operations can corrupt frames or return data from
+    the wrong position.  To prevent this, each thread that needs video access
+    should call :meth:`clone` to get its own ``VideoSource`` (and thus its own
+    ``VideoCapture``) opened from the same file path.
+
+    As a defence-in-depth measure, a :class:`threading.Lock` guards all
+    ``VideoCapture`` operations so that even if a shared instance is used
+    concurrently, the compound seek+read sequence is atomic.
+    """
 
     def __init__(self, file_path: str):
         self.file_path = file_path
         self._cap = cv2.VideoCapture(file_path)
         if not self._cap.isOpened():
             raise ValueError(f"Cannot open video file: {file_path}")
+        self._lock = threading.Lock()
 
         self.frame_count = int(self._cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.fps = self._cap.get(cv2.CAP_PROP_FPS)
@@ -19,12 +33,28 @@ class VideoSource:
         self.height = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.duration_seconds = self.frame_count / self.fps if self.fps > 0 else 0.0
 
+    def clone(self) -> "VideoSource":
+        """Create a new ``VideoSource`` for the same file (thread-safe).
+
+        Each clone opens its own ``cv2.VideoCapture`` instance, so it can be
+        used safely from a different thread without interfering with the
+        original.
+        """
+        return VideoSource(self.file_path)
+
     def get_frame(self, index: int) -> np.ndarray | None:
-        """Seek to frame index and return RGB numpy array, or None if invalid."""
+        """Seek to frame index and return RGB numpy array, or None if invalid.
+
+        Thread-safe: acquires an internal lock so the compound seek+read
+        operation is atomic.
+        """
         if index < 0 or index >= self.frame_count:
             return None
-        self._cap.set(cv2.CAP_PROP_POS_FRAMES, index)
-        ret, frame = self._cap.read()
+        with self._lock:
+            if self._cap is None:
+                return None
+            self._cap.set(cv2.CAP_PROP_POS_FRAMES, index)
+            ret, frame = self._cap.read()
         if not ret:
             return None
         return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -37,14 +67,23 @@ class VideoSource:
         Reads frames sequentially using cap.read() which is much faster than
         seeking for each frame in compressed codecs. Skips frames where
         (index - start) % step != 0.
+
+        Thread-safe: acquires an internal lock for the duration of the
+        sequential read.  Note that holding the lock for the entire generator
+        means no other thread can access this ``VideoSource`` while the range
+        is being iterated.  For long-running processor threads, use
+        :meth:`clone` to get a separate ``VideoSource`` instead.
         """
-        self._cap.set(cv2.CAP_PROP_POS_FRAMES, start)
-        for index in range(start, end + 1):
-            ret, frame = self._cap.read()
-            if not ret:
-                break
-            if (index - start) % step == 0:
-                yield index, cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        with self._lock:
+            if self._cap is None:
+                return
+            self._cap.set(cv2.CAP_PROP_POS_FRAMES, start)
+            for index in range(start, end + 1):
+                ret, frame = self._cap.read()
+                if not ret:
+                    break
+                if (index - start) % step == 0:
+                    yield index, cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
     def close(self):
         """Release the VideoCapture resource."""

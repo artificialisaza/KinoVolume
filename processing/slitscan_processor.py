@@ -56,6 +56,8 @@ class SlitscanProcessor(BaseProcessor):
                 self.error.emit(f"Unknown mask type: {mask_type}")
         except Exception as e:
             self.error.emit(str(e))
+        finally:
+            self.cleanup()
 
     # ── Planar cut (diagonal sweep through cube) ──────────────────
 
@@ -69,7 +71,7 @@ class SlitscanProcessor(BaseProcessor):
         Vertical: slit sweeps horizontally (L→R or R→L) across frames → YT plane.
         Horizontal: slit sweeps vertically (T→B or B→T) across frames → XT plane.
         """
-        video_src = s.video_source
+        video_src = self._video
         fw, fh = video_src.width, video_src.height
 
         mask_type = s.slitscan_mask_type
@@ -155,6 +157,27 @@ class SlitscanProcessor(BaseProcessor):
         else:
             output = np.zeros((out_h, out_w, 3), dtype=np.uint8)
 
+        # Read frames sequentially using the sampling step — much faster
+        # than seeking per frame for compressed codecs (H.264/H.265).
+        # We read all sampled frames into a cache, then write columns.
+        needed_indices = set(frame_indices)
+        frame_cache = {}
+        read_count = 0
+        total_to_read = len(needed_indices)
+        for f_idx, frame_data in video_src.get_frame_range(
+            initial, last, sampling
+        ):
+            if self.is_cancelled():
+                self.cancelled.emit()
+                self._cleanup(output, use_memmap, out_path_tmp)
+                return
+            if f_idx in needed_indices:
+                frame_cache[f_idx] = frame_data
+                read_count += 1
+                # Emit progress during the reading phase so the user
+                # sees activity instead of a frozen 0% bar.
+                self.progress.emit(read_count, total_to_read + num_cols)
+
         count = 0
         for col, f_idx in enumerate(frame_indices):
             if self.is_cancelled():
@@ -162,7 +185,7 @@ class SlitscanProcessor(BaseProcessor):
                 self._cleanup(output, use_memmap, out_path_tmp)
                 return
 
-            fd = video_src.get_frame(f_idx)
+            fd = frame_cache.get(f_idx)
             if fd is None:
                 continue
             pos = positions[col]
@@ -177,7 +200,7 @@ class SlitscanProcessor(BaseProcessor):
                     output[col * slit_w:(col + 1) * slit_w, :, :] = strip
 
             count += 1
-            self.progress.emit(count, num_cols)
+            self.progress.emit(total_to_read + count, total_to_read + num_cols)
 
         if count == 0:
             self.error.emit("No frames were processed.")
@@ -215,7 +238,7 @@ class SlitscanProcessor(BaseProcessor):
     # ── Vertical / Horizontal slit scan (sweep) ────────────────────
 
     def _run_slit_scan(self, s):
-        video_src = s.video_source
+        video_src = self._video
         fw, fh = video_src.width, video_src.height
 
         mask_type = s.slitscan_mask_type
@@ -317,7 +340,24 @@ class SlitscanProcessor(BaseProcessor):
         else:
             output = np.zeros((out_h, out_w, 3), dtype=np.uint8)
 
-        # Fast path: decode frames sequentially, minimal caching
+        # Read frames sequentially using the sampling step — much faster
+        # than seeking per frame for compressed codecs (H.264/H.265).
+        needed_indices = set(frame_indices)
+        frame_cache = {}
+        read_count = 0
+        total_to_read = len(needed_indices)
+        for f_idx, frame_data in video_src.get_frame_range(
+            initial, last, sampling
+        ):
+            if self.is_cancelled():
+                self.cancelled.emit()
+                self._cleanup(output, use_memmap, out_path_tmp)
+                return
+            if f_idx in needed_indices:
+                frame_cache[f_idx] = frame_data
+                read_count += 1
+                self.progress.emit(read_count, total_to_read + num_cols)
+
         count = 0
         for col, f_idx in enumerate(frame_indices):
             if self.is_cancelled():
@@ -325,7 +365,7 @@ class SlitscanProcessor(BaseProcessor):
                 self._cleanup(output, use_memmap, out_path_tmp)
                 return
 
-            fd = video_src.get_frame(f_idx)
+            fd = frame_cache.get(f_idx)
             if fd is None:
                 continue
             pos = positions[col]
@@ -340,7 +380,7 @@ class SlitscanProcessor(BaseProcessor):
                     output[col * slit_w:(col + 1) * slit_w, :, :] = strip
 
             count += 1
-            self.progress.emit(count, num_cols)
+            self.progress.emit(total_to_read + count, total_to_read + num_cols)
 
         if count == 0:
             self.error.emit("No frames were processed.")
@@ -419,7 +459,7 @@ class SlitscanProcessor(BaseProcessor):
         to sample the video volume at arbitrary 3D positions defined by
         4 control points.
         """
-        video_src = s.video_source
+        video_src = self._video
         fw, fh = video_src.width, video_src.height
 
         points = s.slitscan_oblique_points
